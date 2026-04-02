@@ -1,0 +1,61 @@
+{
+  "name": "atem-controller-server",
+  "version": "1.0.0",
+  "description": "ATEM Mini Pro Remote Controller - Electron Server",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env NODE_ENV=development electron .",
+    "build": "electron-builder --win --x64",
+    "build:dir": "electron-builder --win --x64 --dir"
+  },
+  "dependencies": {
+    "atem-connection": "^3.9.0",
+    "auto-launch": "^5.0.6",
+    "electron-settings": "^4.0.4",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^29.1.4",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.atem.controller",
+    "productName": "ATEM Controller",
+    "copyright": "Copyright © 2026",
+    "icon": "assets/icon.ico",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "include": "build/installer.nsh",
+      "installerSidebar": null,
+      "warningsAsErrors": false
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ]
+  }
+}

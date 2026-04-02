@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ATEM Controller Server</title>
+  <style>
+    :root {
+      --navy-950: #020817;
+      --navy-900: #0f172a;
+      --navy-800: #1e293b;
+      --navy-700: #334155;
+      --navy-600: #475569;
+      --navy-100: #f1f5f9;
+      --green:    #22c55e;
+      --amber:    #f59e0b;
+      --red:      #ef4444;
+      --blue:     #3b82f6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--navy-900);
+      color: var(--navy-100);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--navy-950);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--navy-700);
+    }
+    header svg { flex-shrink: 0; }
+    header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
+    header span { font-size: 11px; color: var(--navy-600); }
+    main { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+    .card {
+      background: var(--navy-800);
+      border: 1px solid var(--navy-700);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .card h2 { font-size: 12px; font-weight: 600; text-transform: uppercase;
+               letter-spacing: 0.08em; color: var(--navy-600); margin-bottom: 12px; }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--navy-600);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.connecting { background: var(--amber); animation: pulse 1s infinite; }
+    .dot.error { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .label { font-weight: 500; }
+    .sub { font-size: 12px; color: var(--navy-600); }
+
+    .field-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    input[type=text] {
+      flex: 1;
+      background: var(--navy-900);
+      border: 1px solid var(--navy-700);
+      border-radius: 6px;
+      color: var(--navy-100);
+      padding: 8px 12px;
+      font-size: 14px;
+      font-family: 'Consolas', monospace;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type=text]:focus { border-color: var(--blue); }
+
+    button {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.85; }
+    .btn-connect  { background: var(--blue);  color: #fff; }
+    .btn-discon   { background: var(--red);   color: #fff; }
+    .btn-outline  { background: transparent; border: 1px solid var(--navy-600);
+                    color: var(--navy-100); }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .info-item { display: flex; flex-direction: column; gap: 2px; }
+    .info-item .val { font-size: 16px; font-weight: 600; color: var(--navy-100); }
+    .info-item .key { font-size: 11px; color: var(--navy-600); }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .toggle {
+      position: relative; width: 44px; height: 24px;
+      cursor: pointer;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0;
+      background: var(--navy-700);
+      border-radius: 12px;
+      transition: background 0.2s;
+    }
+    .slider:before {
+      content: '';
+      position: absolute;
+      height: 18px; width: 18px;
+      left: 3px; bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    input:checked + .slider { background: var(--blue); }
+    input:checked + .slider:before { transform: translateX(20px); }
+
+    footer {
+      padding: 10px 20px;
+      border-top: 1px solid var(--navy-700);
+      font-size: 11px;
+      color: var(--navy-600);
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <rect width="28" height="28" rx="6" fill="#1e40af"/>
+      <path d="M7 14a7 7 0 1 0 14 0A7 7 0 0 0 7 14z" stroke="#93c5fd" stroke-width="1.5" fill="none"/>
+      <circle cx="14" cy="14" r="3" fill="#3b82f6"/>
+      <line x1="14" y1="7" x2="14" y2="10" stroke="#93c5fd" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="14" y1="18" x2="14" y2="21" stroke="#93c5fd" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="7" y1="14" x2="10" y2="14" stroke="#93c5fd" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="18" y1="14" x2="21" y2="14" stroke="#93c5fd" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <h1>ATEM Controller Server</h1>
+      <span>Bridge Server — v1.0.0</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Server Status -->
+    <div class="card">
+      <h2>Server Status</h2>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="val" id="srv-port">—</span>
+          <span class="key">WebSocket Port</span>
+        </div>
+        <div class="info-item">
+          <span class="val" id="srv-clients">0</span>
+          <span class="key">Connected Clients</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ATEM Connection -->
+    <div class="card">
+      <h2>ATEM Connection</h2>
+      <div class="status-row">
+        <div class="dot" id="atem-dot"></div>
+        <span class="label" id="atem-status-label">Disconnected</span>
+        <span class="sub" id="atem-ip-label"></span>
+      </div>
+      <div class="field-row" style="margin-top:10px">
+        <input type="text" id="ip-input" placeholder="192.168.1.240" maxlength="15"/>
+        <button class="btn-connect" id="btn-connect">Connect</button>
+        <button class="btn-discon" id="btn-discon" style="display:none">Disconnect</button>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card">
+      <h2>Settings</h2>
+      <div class="toggle-row">
+        <div>
+          <div class="label">Run on Startup</div>
+          <div class="sub">Launch server when Windows starts</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="startup-toggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Instructions -->
+    <div class="card">
+      <h2>Akses dari HP / Tablet</h2>
+      <div class="sub" style="margin-bottom:10px">
+        Pastikan HP terhubung ke <strong style="color:#93c5fd">WiFi yang sama</strong> dengan PC ini.
+        Buka browser di HP lalu akses alamat berikut:
+      </div>
+
+      <!-- PWA URL -->
+      <div style="margin-bottom:8px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:3px">
+          PWA (Next.js) — buka di browser HP
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;background:#020817;border:1px solid #334155;border-radius:6px;
+                      padding:7px 10px;font-family:monospace;font-size:13px;color:#4ade80;"
+               id="pwa-url">Mendeteksi IP...</div>
+          <button onclick="copyText('pwa-url')" style="padding:5px 10px;background:#1e3a5f;
+                  border:1px solid #2563eb;border-radius:6px;color:#93c5fd;font-size:11px;
+                  cursor:pointer">Copy</button>
+        </div>
+      </div>
+
+      <!-- WebSocket URL -->
+      <div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:3px">
+          WebSocket Server (masukkan di Connection Panel PWA)
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;background:#020817;border:1px solid #334155;border-radius:6px;
+                      padding:7px 10px;font-family:monospace;font-size:13px;color:#fbbf24;"
+               id="ws-url">Mendeteksi IP...</div>
+          <button onclick="copyText('ws-url')" style="padding:5px 10px;background:#1e3a5f;
+                  border:1px solid #2563eb;border-radius:6px;color:#93c5fd;font-size:11px;
+                  cursor:pointer">Copy</button>
+        </div>
+      </div>
+
+      <div style="margin-top:8px;font-size:11px;color:#475569">
+        Tip: IP PC dapat berubah. Gunakan DHCP reservation di router agar tetap statis.
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span>ATEM Controller © 2026</span>
+    <a href="#" id="logs-link" style="color:#475569;text-decoration:none">Open Logs</a>
+  </footer>
+
+  <script>
+    const api = window.electronAPI;
+    let currentStatus = 'disconnected';
+
+    api.onServerReady(({ port, atemIP, localIP }) => {
+      document.getElementById('srv-port').textContent = port;
+      document.getElementById('ip-input').value = atemIP || '';
+
+      const ip = localIP || '192.168.1.100';
+      document.getElementById('pwa-url').textContent = `http://${ip}:3000`;
+      document.getElementById('ws-url').textContent  = `http://${ip}:${port}`;
+    });
+
+    api.onATEMStatus(({ status, ip }) => {
+      currentStatus = status;
+      const dot = document.getElementById('atem-dot');
+      const label = document.getElementById('atem-status-label');
+      const ipLabel = document.getElementById('atem-ip-label');
+      const btnConnect = document.getElementById('btn-connect');
+      const btnDiscon = document.getElementById('btn-discon');
+
+      dot.className = 'dot ' + status;
+      label.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+      ipLabel.textContent = ip ? ip : '';
+
+      const connected = status === 'connected';
+      btnConnect.style.display = connected ? 'none' : '';
+      btnDiscon.style.display = connected ? '' : 'none';
+    });
+
+    document.getElementById('btn-connect').addEventListener('click', () => {
+      const ip = document.getElementById('ip-input').value.trim();
+      if (ip) api.connectATEM(ip);
+    });
+
+    document.getElementById('btn-discon').addEventListener('click', () => {
+      api.disconnectATEM();
+    });
+
+    document.getElementById('ip-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('btn-connect').click();
+    });
+
+    // Load startup setting
+    api.getConfig().then(cfg => {
+      document.getElementById('startup-toggle').checked = cfg.runOnStartup || false;
+    });
+
+    document.getElementById('startup-toggle').addEventListener('change', (e) => {
+      api.setConfig({ runOnStartup: e.target.checked });
+    });
+
+    document.getElementById('logs-link').addEventListener('click', (e) => {
+      e.preventDefault();
+      api.openLogs();
+    });
+
+    function copyText(elId) {
+      const text = document.getElementById(elId).textContent.trim();
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.querySelector(`[onclick="copyText('${elId}')"]`);
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.color = '#4ade80';
+        setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "atem-controller2026",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ATEM Mini Pro Remote Controller — Monorepo",
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "install:all": "npm install --prefix server && npm install --prefix client",
+    "build:server": "cd server && npm run build",
+    "build:client": "cd client && npm run build"
+  },
+  "workspaces": ["server", "client"]
+}

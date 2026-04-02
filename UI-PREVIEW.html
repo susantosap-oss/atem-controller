@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ATEM Controller 2026 — UI Preview</title>
+<style>
+  :root {
+    --navy-950:#020817;--navy-900:#0f172a;--navy-800:#1e293b;
+    --navy-700:#334155;--navy-600:#475569;--navy-500:#64748b;
+    --navy-400:#94a3b8;--navy-300:#cbd5e1;--navy-200:#e2e8f0;--navy-100:#f1f5f9;
+    --blue-600:#2563eb;--blue-500:#3b82f6;--blue-400:#60a5fa;
+    --green-600:#16a34a;--green-500:#22c55e;--green-400:#4ade80;
+    --amber-600:#d97706;--amber-500:#f59e0b;--amber-400:#fbbf24;--amber-300:#fcd34d;
+    --red-700:#b91c1c;--red-500:#ef4444;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--navy-950);color:var(--navy-100);font-family:'Segoe UI',system-ui,sans-serif;
+    font-size:13px;height:100dvh;display:flex;flex-direction:column;overflow:hidden;user-select:none}
+
+  /* ── Tab bar ───────────────────────────────── */
+  .tab-bar{display:flex;border-top:1px solid var(--navy-700);background:var(--navy-950);flex-shrink:0}
+  .tab-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 4px;
+    font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+    border:none;background:none;color:var(--navy-500);border-top:2px solid transparent;transition:.2s}
+  .tab-btn.active{color:var(--blue-400);border-top-color:var(--blue-500);background:rgba(15,23,42,.6)}
+  .tab-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5}
+  .badge{background:var(--amber-600);color:#fff;font-size:8px;font-weight:700;border-radius:10px;
+    padding:0 4px;min-width:14px;text-align:center;line-height:14px}
+
+  /* ── Connection panel ──────────────────────── */
+  .conn-panel{position:fixed;top:8px;right:8px;z-index:50;width:280px;
+    background:rgba(15,23,42,.96);backdrop-filter:blur(8px);border:1px solid var(--navy-700);
+    border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden}
+  .conn-header{display:flex;align-items:center;justify-content:space-between;
+    padding:8px 12px;background:rgba(2,8,23,.6);border-bottom:1px solid var(--navy-700)}
+  .conn-header span{font-size:11px;font-weight:600;color:var(--navy-300);text-transform:uppercase;letter-spacing:.08em}
+  .conn-close{color:var(--navy-500);cursor:pointer;font-size:12px;border:none;background:none}
+  .conn-body{padding:12px;display:flex;flex-direction:column;gap:12px}
+  .conn-label{font-size:10px;font-weight:500;color:var(--navy-400);text-transform:uppercase;letter-spacing:.08em}
+  .conn-row{display:flex;gap:8px;margin-top:4px}
+  .conn-input{flex:1;background:var(--navy-950);border:1px solid var(--navy-700);border-radius:8px;
+    color:var(--navy-100);padding:6px 10px;font-size:11px;font-family:monospace}
+  .btn-connect{padding:6px 10px;font-size:11px;font-weight:600;border-radius:8px;border:none;cursor:pointer;
+    background:var(--blue-700, #1d4ed8);color:#fff;transition:.2s}
+  .btn-disco{background:var(--red-700);color:#fff}
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .dot.connected{background:var(--green-500);box-shadow:0 0 6px var(--green-500)}
+  .dot.connecting{background:var(--amber-400);animation:pulse 1s infinite}
+  .dot.disconnected{background:var(--navy-600)}
+  .dot.error{background:var(--red-500)}
+  .status-row{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500}
+  .conn-divider{border:none;border-top:1px solid rgba(51,65,85,.4)}
+  .handshake-ok{background:rgba(22,163,74,.1);border:1px solid rgba(22,163,74,.3);
+    border-radius:8px;padding:6px 10px;font-size:10px;font-weight:500;color:var(--green-400)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+  /* ── Mixer header ──────────────────────────── */
+  .mixer-header{display:flex;align-items:center;padding:8px 16px;background:var(--navy-900);
+    border-bottom:1px solid rgba(51,65,85,.7);flex-shrink:0}
+  .bmd-bars{display:flex;gap:2px}
+  .bmd-bar{width:4px;height:20px;border-radius:2px;opacity:.8}
+  .mixer-title{font-size:13px;font-weight:700;letter-spacing:.05em;margin-left:8px}
+  .mixer-info{margin-left:auto;display:flex;gap:12px;align-items:center}
+  .legend{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--navy-500)}
+  .legend-dot{width:10px;height:10px;border-radius:50%}
+
+  /* ── Mixer layout ──────────────────────────── */
+  .mixer-area{flex:1;display:flex;overflow:hidden}
+  .channels-scroll{flex:1;overflow-x:auto;overflow-y:hidden}
+  .channels-inner{display:flex;height:100%;gap:1px;min-width:max-content}
+  .section-label{display:flex;flex-direction:column;justify-content:space-between;
+    padding:12px 8px;flex-shrink:0}
+  .section-label span{font-size:10px;color:var(--navy-600);text-transform:uppercase;letter-spacing:.15em;
+    writing-mode:vertical-rl;transform:rotate(180deg)}
+  .channel-strip{display:flex;flex-direction:column;align-items:center;gap:4px;
+    padding:8px 6px;border-right:1px solid rgba(30,41,59,.8);
+    background:rgba(15,23,42,.4);width:72px;flex-shrink:0}
+  .channel-strip:hover{background:rgba(30,41,59,.3)}
+  .master-strip{display:flex;flex-direction:column;align-items:center;gap:4px;
+    padding:8px;border-left:2px solid rgba(120,53,15,.6);
+    background:rgba(69,26,3,.1);flex-shrink:0;width:80px}
+
+  /* ── Channel label ─────────────────────────── */
+  .ch-label{width:100%;text-align:center;font-size:10px;font-weight:600;
+    letter-spacing:.05em;text-transform:uppercase;padding:2px 4px;border-radius:4px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ch-label.normal{color:var(--navy-300);background:rgba(30,41,59,.6)}
+  .ch-label.master{color:var(--amber-300);background:rgba(69,26,3,.5);border:1px solid rgba(120,53,15,.6)}
+
+  /* ── VU Meter ──────────────────────────────── */
+  .vu-meter{display:flex;gap:2px;align-items:flex-end}
+  .vu-bar-wrap{position:relative;background:var(--navy-950);border-radius:2px;overflow:hidden}
+  .vu-fill{position:absolute;bottom:0;left:0;right:0;border-radius:2px;transition:height .05s linear}
+  .vu-peak{position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,.8);transition:bottom .15s ease-out}
+  .vu-scale{position:relative;margin-left:4px;width:18px}
+  .vu-mark{position:absolute;right:0;font-size:9px;color:var(--navy-500);line-height:1;transform:translateY(50%)}
+
+  /* ── Fader ─────────────────────────────────── */
+  .fader-track{position:relative;background:var(--navy-950);border-radius:4px;
+    border:1px solid rgba(51,65,85,.6);cursor:grab}
+  .fader-unity{position:absolute;left:0;right:0;border-top:1px dashed rgba(100,116,139,.7)}
+  .fader-thumb{position:absolute;left:50%;transform:translateX(-50%) translateY(-50%);
+    border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:grab;
+    display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 3px}
+  .fader-grip{height:1px;background:rgba(255,255,255,.3);border-radius:1px}
+  .db-readout{font-size:10px;font-family:monospace;font-weight:600;text-align:center;
+    padding:2px 4px;border-radius:4px;background:var(--navy-950);
+    border:1px solid rgba(51,65,85,.5);min-width:40px}
+
+  /* ── Pan slider ────────────────────────────── */
+  .pan-labels{display:flex;justify-content:space-between;width:100%;padding:0 2px;font-size:8px;color:var(--navy-600)}
+  .pan-value{font-size:8px;font-family:monospace}
+  .pan-track{position:relative;width:100%;height:14px;background:var(--navy-950);
+    border-radius:3px;border:1px solid rgba(51,65,85,.5);cursor:ew-resize}
+  .pan-center{position:absolute;top:0;bottom:0;width:1px;background:var(--navy-700);left:50%}
+  .pan-fill{position:absolute;top:2px;bottom:2px;opacity:.4;border-radius:2px}
+  .pan-thumb{position:absolute;top:50%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%}
+
+  /* ── Mix buttons ───────────────────────────── */
+  .mix-btns{display:flex;flex-direction:column;gap:4px;width:100%}
+  .mix-btn{width:100%;font-size:10px;font-weight:700;padding:4px;border-radius:4px;
+    border:none;cursor:pointer;transition:.2s}
+  .mix-btn.on-active{background:var(--green-600);color:#fff;box-shadow:0 0 6px var(--green-600)}
+  .mix-btn.afv-active{background:var(--amber-500);color:#fff;box-shadow:0 0 6px var(--amber-600)}
+  .mix-btn.off-active{background:var(--red-700);color:#fff;box-shadow:0 0 6px var(--red-700)}
+  .mix-btn.inactive{background:var(--navy-800);color:var(--navy-500)}
+
+  /* ── Mixer bottom bar ──────────────────────── */
+  .mixer-bottom{display:flex;align-items:center;padding:4px 16px;background:var(--navy-950);
+    border-top:1px solid rgba(30,41,59,.6);flex-shrink:0;gap:16px}
+  .mixer-bottom span{font-size:10px;color:var(--navy-600)}
+
+  /* ── Media Player tab ──────────────────────── */
+  .media-header{display:flex;align-items:center;padding:8px 16px;background:var(--navy-900);
+    border-bottom:1px solid rgba(51,65,85,.7);flex-shrink:0}
+  .mp-status-row{display:flex;gap:8px;padding:8px 12px;flex-shrink:0;border-bottom:1px solid rgba(30,41,59,.6)}
+  .mp-card{flex:1;background:rgba(30,41,59,.6);border:1px solid rgba(51,65,85,.6);
+    border-radius:8px;padding:8px 12px}
+  .mp-card-header{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+  .mp-dot{width:8px;height:8px;border-radius:50%;background:var(--amber-400);
+    box-shadow:0 0 5px var(--amber-500)}
+  .mp-card-label{font-size:11px;font-weight:700;color:var(--amber-300);text-transform:uppercase;letter-spacing:.1em}
+  .mp-slot-info{margin-left:auto;font-size:10px;color:var(--navy-500)}
+  .mp-filename{font-size:11px;font-family:monospace;color:var(--navy-200);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .still-grid{flex:1;overflow-y:auto;padding:8px 12px}
+  .still-grid-title{font-size:10px;color:var(--navy-600);text-transform:uppercase;
+    letter-spacing:.1em;margin-bottom:8px}
+  .still-slots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .still-slot{border-radius:8px;border:1px solid;padding:6px 7px;display:flex;flex-direction:column}
+  .still-slot.used{background:rgba(30,41,59,.8);border-color:rgba(71,85,105,.6)}
+  .still-slot.empty{background:rgba(15,23,42,.4);border-color:rgba(30,41,59,.4)}
+  .still-slot.active-mp1{box-shadow:0 0 0 1px rgba(245,158,11,.6)}
+  .still-slot.active-mp2{box-shadow:0 0 0 1px rgba(59,130,246,.6)}
+  .slot-header{display:flex;align-items:center;gap:4px;margin-bottom:4px}
+  .slot-num{font-size:10px;font-family:monospace;font-weight:700;color:var(--navy-400)}
+  .slot-badge{font-size:8px;font-weight:700;padding:0 3px;border-radius:3px;line-height:14px}
+  .slot-badge.mp1{background:var(--amber-500);color:#000}
+  .slot-badge.mp2{background:var(--blue-500);color:#fff}
+  .slot-name{font-size:9px;font-family:monospace;color:var(--navy-200);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px;flex:1}
+  .slot-name.empty-name{color:var(--navy-700);font-style:italic}
+  .slot-btns{display:flex;gap:4px}
+  .slot-btn{flex:1;font-size:9px;font-weight:700;padding:2px;border-radius:3px;
+    border:none;cursor:pointer;transition:.2s}
+  .slot-btn.mp1-btn{background:var(--navy-700);color:var(--amber-400)}
+  .slot-btn.mp1-btn.active{background:var(--amber-500);color:#000}
+  .slot-btn.mp2-btn{background:var(--navy-700);color:var(--blue-400)}
+  .slot-btn.mp2-btn.active{background:var(--blue-500);color:#fff}
+  .slot-btn.disabled{background:var(--navy-900);color:var(--navy-700);cursor:not-allowed}
+  .media-bottom{display:flex;align-items:center;padding:4px 16px;background:var(--navy-950);
+    border-top:1px solid rgba(30,41,59,.6);flex-shrink:0;gap:16px}
+
+  /* ── Content area ──────────────────────────── */
+  .tab-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+  .tab-pane{display:flex;flex-direction:column;height:100%}
+  .tab-pane.hidden{display:none}
+</style>
+</head>
+<body>
+
+<!-- ═══ CONNECTION PANEL (floating) ════════════════════════════ -->
+<div class="conn-panel" id="conn-panel">
+  <div class="conn-header">
+    <span>Connection</span>
+    <button class="conn-close" onclick="toggleConn()">✕</button>
+  </div>
+  <div class="conn-body">
+    <div>
+      <div class="conn-label">Server URL</div>
+      <div class="status-row" style="margin-top:4px;margin-bottom:4px">
+        <div class="dot connected"></div>
+        <span style="font-size:11px;color:#4ade80">connected</span>
+      </div>
+      <div class="conn-row">
+        <input class="conn-input" value="http://192.168.1.100:4000" readonly>
+        <button class="btn-connect">Re</button>
+      </div>
+    </div>
+    <hr class="conn-divider">
+    <div>
+      <div class="conn-label">ATEM IP Address</div>
+      <div class="status-row" style="margin-top:4px;margin-bottom:4px">
+        <div class="dot connected"></div>
+        <span style="font-size:11px;color:#4ade80">connected</span>
+      </div>
+      <div class="conn-row">
+        <input class="conn-input" value="192.168.1.150" readonly>
+        <button class="btn-connect btn-disco">Disco</button>
+      </div>
+    </div>
+    <div class="handshake-ok">Handshake OK — 192.168.1.150</div>
+  </div>
+</div>
+<div id="conn-mini" style="display:none;position:fixed;top:8px;right:8px;z-index:50;
+  background:rgba(15,23,42,.9);backdrop-filter:blur(8px);border:1px solid var(--navy-700);
+  border-radius:20px;padding:5px 12px;display:none;align-items:center;gap:8px;cursor:pointer"
+  onclick="toggleConn()">
+  <div class="dot connected"></div><span style="font-size:11px;color:#4ade80">WS</span>
+  <span style="font-size:11px;color:var(--navy-600)">|</span>
+  <div class="dot connected"></div><span style="font-size:11px;color:#4ade80">ATEM</span>
+  <span style="font-size:12px;color:var(--navy-400);margin-left:2px">⚙</span>
+</div>
+
+<!-- ═══ TAB CONTENT ════════════════════════════════════════════ -->
+<div class="tab-content">
+
+  <!-- ── AUDIO TAB ─────────────────────────────────────────── -->
+  <div class="tab-pane" id="pane-audio">
+
+    <!-- Mixer Header -->
+    <div class="mixer-header">
+      <div class="bmd-bars">
+        <div class="bmd-bar" style="background:var(--blue-600)"></div>
+        <div class="bmd-bar" style="background:var(--blue-600)"></div>
+        <div class="bmd-bar" style="background:var(--blue-600)"></div>
+      </div>
+      <span class="mixer-title">FAIRLIGHT AUDIO MIXER</span>
+      <div class="mixer-info">
+        <span style="font-size:11px;color:var(--navy-500)">6 CH + MASTER</span>
+        <div class="legend"><div class="legend-dot" style="background:rgba(220,38,38,.3);border:1px solid rgba(185,28,28,.5)"></div>CLIP</div>
+        <div class="legend"><div class="legend-dot" style="background:rgba(245,158,11,.3);border:1px solid rgba(217,119,6,.5)"></div>WARN</div>
+        <div class="legend"><div class="legend-dot" style="background:rgba(34,197,94,.3);border:1px solid rgba(22,163,74,.5)"></div>OK</div>
+      </div>
+    </div>
+
+    <!-- Channels -->
+    <div class="mixer-area">
+      <div class="channels-scroll">
+        <div class="channels-inner">
+          <div class="section-label"><span>Inputs</span></div>
+
+          <!-- Generate channels via script -->
+          <div id="channels-container" style="display:flex;height:100%;gap:1px"></div>
+
+          <!-- Master -->
+          <div class="master-strip" id="master-strip"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mixer-bottom">
+      <span>BLACKMAGIC DESIGN — ATEM REMOTE</span>
+      <span style="margin-left:auto">Fader: drag up/down · double-tap = 0dB &nbsp;|&nbsp; ON = output on · AFV = audio follows video</span>
+    </div>
+  </div>
+
+  <!-- ── MEDIA TAB ──────────────────────────────────────────── -->
+  <div class="tab-pane hidden" id="pane-media">
+    <div class="media-header">
+      <div class="bmd-bars">
+        <div class="bmd-bar" style="background:var(--amber-600)"></div>
+        <div class="bmd-bar" style="background:var(--amber-600)"></div>
+        <div class="bmd-bar" style="background:var(--amber-600)"></div>
+      </div>
+      <span class="mixer-title">MEDIA POOL</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--navy-500)">7 / 20 slots used</span>
+    </div>
+
+    <!-- MP1 / MP2 Status -->
+    <div class="mp-status-row">
+      <div class="mp-card">
+        <div class="mp-card-header">
+          <div class="mp-dot"></div>
+          <span class="mp-card-label">Media Player 1</span>
+          <span class="mp-slot-info">Slot 3</span>
+        </div>
+        <div class="mp-filename">Lower_Third_Blue</div>
+      </div>
+      <div class="mp-card">
+        <div class="mp-card-header">
+          <div class="mp-dot"></div>
+          <span class="mp-card-label">Media Player 2</span>
+          <span class="mp-slot-info">Slot 7</span>
+        </div>
+        <div class="mp-filename">BG_Gradient_Dark</div>
+      </div>
+    </div>
+
+    <!-- Still Grid -->
+    <div class="still-grid">
+      <div class="still-grid-title">Still Pool — tap a slot to assign</div>
+      <div class="still-slots" id="still-grid"></div>
+    </div>
+
+    <div class="media-bottom">
+      <span>ATEM MINI PRO — 2 Media Players · 20 Still Slots</span>
+      <span style="margin-left:auto">Tap MP1 / MP2 to assign · active slot highlighted</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TAB BAR ════════════════════════════════════════════════ -->
+<div class="tab-bar">
+  <button class="tab-btn active" id="tab-audio" onclick="switchTab('audio')">
+    <svg viewBox="0 0 16 16"><line x1="3" y1="4" x2="3" y2="12" stroke-linecap="round"/><line x1="6" y1="6" x2="6" y2="12" stroke-linecap="round"/><line x1="9" y1="3" x2="9" y2="12" stroke-linecap="round"/><line x1="12" y1="5" x2="12" y2="12" stroke-linecap="round"/><line x1="1" y1="13" x2="15" y2="13" stroke-linecap="round"/></svg>
+    AUDIO
+  </button>
+  <button class="tab-btn" id="tab-media" onclick="switchTab('media')" style="position:relative">
+    <svg viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="10" rx="1.5" stroke-linecap="round"/><path d="M6 5.5l4 2.5-4 2.5V5.5z" stroke-linejoin="round"/><line x1="4" y1="14" x2="12" y2="14" stroke-linecap="round"/></svg>
+    MEDIA
+    <span class="badge" style="position:absolute;top:4px;right:calc(50% - 28px)">7</span>
+  </button>
+</div>
+
+<script>
+// ── Channel data ────────────────────────────────────────────
+const channels = [
+  { key:'1',    label:'Cam 1',  gain:-3,  balance:0,    mix:'on',  vu:{l:-8,r:-9,pl:-3,pr:-3} },
+  { key:'2',    label:'Cam 2',  gain:0,   balance:0.2,  mix:'on',  vu:{l:-15,r:-12,pl:-6,pr:-5} },
+  { key:'3',    label:'Laptop', gain:-6,  balance:0,    mix:'afv', vu:{l:-25,r:-24,pl:-12,pr:-11} },
+  { key:'4',    label:'HDMI 4', gain:-60, balance:0,    mix:'off', vu:{l:-60,r:-60,pl:-60,pr:-60} },
+  { key:'1301', label:'MIC 1',  gain:2,   balance:-0.3, mix:'on',  vu:{l:-4,r:-60,pl:-1,pr:-60} },
+  { key:'1302', label:'MIC 2',  gain:2,   balance:0.3,  mix:'on',  vu:{l:-60,r:-5,pl:-60,pr:-2} },
+];
+const master = { gain:0, balance:0, vu:{l:-6,r:-7,pl:-1,pr:-2} };
+
+const VU_H = 160, FADER_H = 160;
+const VU_FLOOR = -60, VU_CLIP = 0;
+
+function dbToH(db) {
+  if (db <= VU_FLOOR) return 0;
+  if (db >= VU_CLIP)  return 100;
+  return (db - VU_FLOOR) / (VU_CLIP - VU_FLOOR) * 100;
+}
+function dbToFader(db) {
+  const min=-60,max=6;
+  if (db<=min) return 0; if (db>=max) return 1;
+  return (db-min)/(max-min);
+}
+function fmtDb(db) {
+  if (db<=-60) return '-∞';
+  return (db>=0?'+':'')+db.toFixed(1);
+}
+function vuColor(db) {
+  if (db >= 0)   return '#ef4444';
+  if (db >= -3)  return '#fbbf24';
+  if (db >= -12) return '#4ade80';
+  return '#16a34a';
+}
+
+function makeVU(vu, h) {
+  const lPct  = dbToH(vu.l);
+  const rPct  = dbToH(vu.r);
+  const plPct = dbToH(vu.pl);
+  const prPct = dbToH(vu.pr);
+  const lCol  = vuColor(vu.l);
+  const rCol  = vuColor(vu.r);
+  const marks = [-60,-40,-20,-12,-6,-3,0];
+  const scaleHtml = marks.map(m => {
+    const pct = (1 - dbToH(m)/100)*100;
+    const lbl = m===-60?'-∞':m===0?'0':m;
+    return `<div class="vu-mark" style="bottom:${100-pct}%">${lbl}</div>`;
+  }).join('');
+  return `
+    <div class="vu-meter" style="height:${h}px">
+      <div class="vu-bar-wrap" style="width:8px;height:${h}px">
+        <div class="vu-fill" style="height:${lPct}%;background:${lCol}"></div>
+        <div class="vu-peak" style="bottom:${plPct}%"></div>
+      </div>
+      <div class="vu-bar-wrap" style="width:8px;height:${h}px">
+        <div class="vu-fill" style="height:${rPct}%;background:${rCol}"></div>
+        <div class="vu-peak" style="bottom:${prPct}%"></div>
+      </div>
+      <div class="vu-scale" style="height:${h}px">${scaleHtml}</div>
+    </div>`;
+}
+
+function makeFader(gain, isMaster) {
+  const pos = 1 - dbToFader(gain);
+  const color = isMaster ? '#f59e0b' : '#3b82f6';
+  const border = isMaster ? '#fbbf24' : '#60a5fa';
+  const unityPct = (1 - dbToFader(0)) * 100;
+  return `
+    <div class="fader-track" style="width:32px;height:${FADER_H}px">
+      <div class="fader-unity" style="top:${unityPct}%"></div>
+      <div class="fader-thumb" style="top:${pos*100}%;width:28px;height:12px;background:${color};border:1px solid ${border}">
+        <div class="fader-grip"></div>
+        <div class="fader-grip"></div>
+        <div class="fader-grip"></div>
+      </div>
+    </div>`;
+}
+
+function makePan(balance, isMaster) {
+  const pct = (balance + 1) / 2 * 100;
+  const lbl = balance === 0 ? 'C' : balance > 0 ? 'R'+Math.round(balance*100) : 'L'+Math.round(-balance*100);
+  const col = isMaster ? '#f59e0b' : '#3b82f6';
+  const panValColor = balance === 0 ? 'var(--navy-500)' : (isMaster ? '#fbbf24' : '#60a5fa');
+  const fillStyle = balance > 0
+    ? `left:50%;width:${balance*50}%`
+    : `right:50%;width:${-balance*50}%`;
+  return `
+    <div style="width:100%">
+      <div class="pan-labels">
+        <span>L</span>
+        <span class="pan-value" style="color:${panValColor}">${lbl}</span>
+        <span>R</span>
+      </div>
+      <div class="pan-track">
+        <div class="pan-center"></div>
+        ${balance !== 0 ? `<div class="pan-fill" style="${fillStyle};background:${col}"></div>` : ''}
+        <div class="pan-thumb" style="left:${pct}%;background:${col}"></div>
+      </div>
+    </div>`;
+}
+
+function dbReadoutColor(db) {
+  if (db > 0)  return 'var(--amber-400)';
+  if (db > -6) return 'var(--green-400)';
+  return 'var(--navy-400)';
+}
+
+function makeChannel(ch) {
+  const mixOn  = ch.mix==='on';
+  const mixAFV = ch.mix==='afv';
+  const mixOff = ch.mix==='off';
+  return `
+    <div class="channel-strip">
+      <div class="ch-label normal" title="${ch.label}">${ch.label}</div>
+      ${makeVU(ch.vu, VU_H)}
+      ${makeFader(ch.gain, false)}
+      <div class="db-readout" style="color:${dbReadoutColor(ch.gain)}">${fmtDb(ch.gain)}</div>
+      ${makePan(ch.balance, false)}
+      <div class="mix-btns">
+        <button class="mix-btn ${mixOn?'on-active':'inactive'}">ON</button>
+        <button class="mix-btn ${mixAFV?'afv-active':'inactive'}">AFV</button>
+        <button class="mix-btn ${mixOff?'off-active':'inactive'}">OFF</button>
+      </div>
+    </div>`;
+}
+
+// Render channels
+document.getElementById('channels-container').innerHTML =
+  channels.map(makeChannel).join('');
+
+// Render master
+document.getElementById('master-strip').innerHTML = `
+  <div class="ch-label master">MSTR</div>
+  ${makeVU(master.vu, VU_H)}
+  ${makeFader(master.gain, true)}
+  <div class="db-readout" style="color:var(--green-400)">${fmtDb(master.gain)}</div>
+  ${makePan(master.balance, true)}
+  <div style="font-size:9px;color:var(--amber-600);text-align:center;text-transform:uppercase;letter-spacing:.05em">Master</div>
+`;
+
+// ── Media Pool data ─────────────────────────────────────────
+const stills = [
+  { name:'Lower_Third_Blue.png',   used:true  },
+  { name:'Opening_Slide.png',      used:true  },
+  { name:'Lower_Third_Green.png',  used:true  },
+  { name:null, used:false },
+  { name:null, used:false },
+  { name:'BG_Gradient_Dark.png',   used:true  },
+  { name:'Logo_White.png',         used:true  },
+  { name:null, used:false },
+  { name:'Sponsor_1.png',          used:true  },
+  { name:'Sponsor_2.png',          used:true  },
+  ...Array(10).fill({ name:null, used:false }),
+];
+const mp1Still = 2; // slot index (0-based) = Slot 3
+const mp2Still = 6; // slot index (0-based) = Slot 7
+
+const grid = document.getElementById('still-grid');
+stills.forEach((s, i) => {
+  const isActive1 = i === mp1Still;
+  const isActive2 = i === mp2Still;
+  const cls = ['still-slot', s.used?'used':'empty',
+    isActive1?'active-mp1':'', isActive2?'active-mp2':''].filter(Boolean).join(' ');
+  const shortName = s.name ? s.name.replace(/\.[^.]+$/,'') : '';
+  grid.innerHTML += `
+    <div class="${cls}">
+      <div class="slot-header">
+        <span class="slot-num">${String(i+1).padStart(2,'0')}</span>
+        ${isActive1 ? '<span class="slot-badge mp1">MP1</span>' : ''}
+        ${isActive2 ? '<span class="slot-badge mp2">MP2</span>' : ''}
+      </div>
+      <div class="slot-name ${s.used?'':'empty-name'}">${s.used ? shortName : 'empty'}</div>
+      <div class="slot-btns">
+        <button class="slot-btn mp1-btn ${!s.used?'disabled':''} ${isActive1?'active':''}">${isActive1?'▶ MP1':'MP1'}</button>
+        <button class="slot-btn mp2-btn ${!s.used?'disabled':''} ${isActive2?'active':''}">${isActive2?'▶ MP2':'MP2'}</button>
+      </div>
+    </div>`;
+});
+
+// ── Tab switching ────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('pane-audio').classList.toggle('hidden', tab !== 'audio');
+  document.getElementById('pane-media').classList.toggle('hidden', tab !== 'media');
+  document.getElementById('tab-audio').classList.toggle('active', tab === 'audio');
+  document.getElementById('tab-media').classList.toggle('active', tab === 'media');
+}
+
+// ── Connection panel toggle ──────────────────────────────────
+function toggleConn() {
+  const panel = document.getElementById('conn-panel');
+  const mini  = document.getElementById('conn-mini');
+  const hidden = panel.style.display === 'none';
+  panel.style.display = hidden ? '' : 'none';
+  mini.style.display  = hidden ? 'none' : 'flex';
+}
+
+// ── Animate VU meters ────────────────────────────────────────
+(function animateVU() {
+  const fills = document.querySelectorAll('.vu-fill');
+  const peaks = document.querySelectorAll('.vu-peak');
+  let t = 0;
+  setInterval(() => {
+    t += 0.08;
+    fills.forEach((el, i) => {
+      const base = parseFloat(el.style.height) || 20;
+      const noise = Math.sin(t * (1 + i * 0.3)) * 8 + Math.random() * 4;
+      const h = Math.max(0, Math.min(100, base + noise));
+      el.style.height = h + '%';
+      el.style.background = h > 90 ? '#ef4444' : h > 75 ? '#fbbf24' : h > 30 ? '#4ade80' : '#16a34a';
+    });
+  }, 50);
+})();
+</script>
+</body>
+</html>

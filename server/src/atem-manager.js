@@ -1,0 +1,274 @@
+/**
+ * ATEM Manager — wraps atem-connection library.
+ * Handles connect/disconnect lifecycle, emits events to bridge.
+ */
+const { Atem } = require('atem-connection');
+const { EventEmitter } = require('events');
+
+class AtemManager extends EventEmitter {
+  constructor() {
+    super();
+    this._atem = null;
+    this._ip = null;
+    this._status = 'disconnected'; // 'connecting' | 'connected' | 'disconnected' | 'error'
+    this._reconnectTimer = null;
+    this._state = null;
+  }
+
+  get status() { return this._status; }
+  get ip() { return this._ip; }
+  get state() { return this._state; }
+
+  async connect(ip) {
+    if (!ip || !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+      this.emit('status', { status: 'error', message: 'Invalid IP address', ip });
+      return;
+    }
+
+    // Disconnect existing before reconnecting
+    if (this._atem) {
+      await this.disconnect(false);
+    }
+
+    this._ip = ip;
+    this._setStatus('connecting');
+
+    this._atem = new Atem();
+
+    this._atem.on('connected', () => {
+      clearTimeout(this._reconnectTimer);
+      this._state = this._atem.state;
+      this._setStatus('connected');
+      this.emit('audioState', this._buildAudioState());
+      const ms = this._buildMediaState();
+      if (ms) this.emit('mediaState', ms);
+    });
+
+    this._atem.on('disconnected', () => {
+      this._setStatus('disconnected');
+      this._scheduleReconnect();
+    });
+
+    this._atem.on('stateChanged', (state, pathKeys) => {
+      this._state = state;
+      this._handleStateChange(pathKeys);
+    });
+
+    this._atem.on('error', (err) => {
+      console.error('[ATEM] Error:', err.message);
+      this._setStatus('error', err.message);
+    });
+
+    // Connection timeout: 10s
+    this._reconnectTimer = setTimeout(() => {
+      if (this._status !== 'connected') {
+        this._setStatus('error', 'Connection timeout');
+      }
+    }, 10000);
+
+    try {
+      await this._atem.connect(ip);
+    } catch (err) {
+      this._setStatus('error', err.message);
+    }
+  }
+
+  async disconnect(clearIP = true) {
+    clearTimeout(this._reconnectTimer);
+    if (this._atem) {
+      this._atem.removeAllListeners();
+      try { await this._atem.disconnect(); } catch (_) {}
+      this._atem = null;
+    }
+    if (clearIP) this._ip = null;
+    this._state = null;
+    this._setStatus('disconnected');
+  }
+
+  _scheduleReconnect() {
+    clearTimeout(this._reconnectTimer);
+    if (!this._ip) return;
+    console.log('[ATEM] Reconnecting in 5s...');
+    this._reconnectTimer = setTimeout(() => {
+      if (this._status !== 'connected' && this._ip) {
+        this.connect(this._ip);
+      }
+    }, 5000);
+  }
+
+  _setStatus(status, message = '') {
+    this._status = status;
+    this.emit('status', { status, message, ip: this._ip });
+  }
+
+  _handleStateChange(pathKeys) {
+    if (!pathKeys || !pathKeys.length) return;
+
+    // Emit full audio state for non-level audio paths OR when input names change
+    const audioStatePaths = pathKeys.filter(
+      k => (k.startsWith('audio') && !k.includes('levels')) ||
+           k.startsWith('settings.inputs')
+    );
+    if (audioStatePaths.length > 0) {
+      this.emit('audioState', this._buildAudioState());
+    }
+
+    // Emit media state when media players or still pool change
+    const mediaStatePaths = pathKeys.filter(k => k.startsWith('media'));
+    if (mediaStatePaths.length > 0) {
+      const ms = this._buildMediaState();
+      if (ms) this.emit('mediaState', ms);
+    }
+
+    // Emit VU meter data — throttled externally by socket-bridge
+    const hasLevels = pathKeys.some(k => k.includes('levels') || k.includes('Level'));
+    if (hasLevels && this._state?.audio) {
+      const levels = this._buildLevels();
+      if (levels) this.emit('vuMeter', levels);
+    }
+  }
+
+  buildAudioState() { return this._buildAudioState(); }
+  buildMediaState() { return this._buildMediaState(); }
+
+  _buildAudioState() {
+    if (!this._state?.audio) return null;
+    const audio = this._state.audio;
+
+    const channels = {};
+    if (audio.channels) {
+      for (const [idx, ch] of Object.entries(audio.channels)) {
+        channels[idx] = {
+          gain: ch.gain ?? 0,          // dB value 0 = unity, range -60..+6
+          balance: ch.balance ?? 0,
+          mixOption: ch.mixOption ?? 0, // 0=Off, 1=On, 4=AFV
+          label: this._getChannelLabel(Number(idx)),
+        };
+      }
+    }
+
+    const master = audio.master
+      ? {
+          gain: audio.master.gain ?? 0,
+          balance: audio.master.balance ?? 0,
+          followFadeToBlack: audio.master.followFadeToBlack ?? false,
+        }
+      : { gain: 0, balance: 0, followFadeToBlack: false };
+
+    return { channels, master };
+  }
+
+  _buildLevels() {
+    const audio = this._state?.audio;
+    if (!audio?.levels) return null;
+
+    const result = {};
+    if (audio.levels.channels) {
+      for (const [idx, ch] of Object.entries(audio.levels.channels)) {
+        result[idx] = {
+          left: ch.left ?? -60,
+          right: ch.right ?? -60,
+          peakLeft: ch.peakLeft ?? -60,
+          peakRight: ch.peakRight ?? -60,
+        };
+      }
+    }
+    if (audio.levels.master) {
+      result.master = {
+        left: audio.levels.master.left ?? -60,
+        right: audio.levels.master.right ?? -60,
+        peakLeft: audio.levels.master.peakLeft ?? -60,
+        peakRight: audio.levels.master.peakRight ?? -60,
+      };
+    }
+    return result;
+  }
+
+  _getChannelLabel(idx) {
+    // Prefer actual input name set in ATEM Software Control (e.g. "Cam 1", "Laptop")
+    const shortName = this._state?.settings?.inputs?.[idx]?.shortName?.trim();
+    if (shortName) return shortName;
+
+    // Fallback: physical connector labels (for MIC/XLR which have no settings.inputs entry)
+    const labels = {
+      1: 'HDMI 1', 2: 'HDMI 2', 3: 'HDMI 3', 4: 'HDMI 4',
+      5: 'HDMI 5', 6: 'HDMI 6', 7: 'HDMI 7', 8: 'HDMI 8',
+      1301: 'MIC 1', 1302: 'MIC 2',
+      2001: 'XLR 1', 2002: 'XLR 2',
+    };
+    return labels[idx] || `CH ${idx}`;
+  }
+
+  // ── ATEM Commands ──────────────────────────────────────────
+
+  async setChannelGain(index, gainDb) {
+    if (!this._isConnected()) return;
+    await this._atem.setAudioMixerInputProps(index, { gain: gainDb });
+  }
+
+  async setChannelMixOption(index, mixOption) {
+    // mixOption: 0=Off, 1=On, 4=AFV
+    if (!this._isConnected()) return;
+    await this._atem.setAudioMixerInputProps(index, { mixOption });
+  }
+
+  async setChannelBalance(index, balance) {
+    if (!this._isConnected()) return;
+    await this._atem.setAudioMixerInputProps(index, { balance });
+  }
+
+  async setMasterGain(gainDb) {
+    if (!this._isConnected()) return;
+    await this._atem.setAudioMixerMasterProps({ gain: gainDb });
+  }
+
+  async setMasterBalance(balance) {
+    if (!this._isConnected()) return;
+    await this._atem.setAudioMixerMasterProps({ balance });
+  }
+
+  // ── Media Player Commands ───────────────────────────────────
+
+  async setMediaPlayerStill(playerIndex, stillIndex) {
+    if (!this._isConnected()) return;
+    // playerIndex: 0=MP1, 1=MP2 | stillIndex: 0-based slot
+    await this._atem.setMediaPlayerSource(playerIndex, { sourceType: 1, stillIndex });
+  }
+
+  // ── Media State Builder ─────────────────────────────────────
+
+  _buildMediaState() {
+    if (!this._state?.media) return null;
+    const media = this._state.media;
+
+    const players = {};
+    if (media.players) {
+      for (const [idx, player] of Object.entries(media.players)) {
+        players[idx] = {
+          sourceType: player.sourceType ?? 1,
+          stillIndex: player.stillIndex ?? 0,
+          playing:    player.playing   ?? false,
+          loop:       player.loop      ?? false,
+        };
+      }
+    }
+
+    const stillPool = {};
+    if (media.stillPool) {
+      for (const [idx, still] of Object.entries(media.stillPool)) {
+        stillPool[idx] = {
+          isUsed:   still.isUsed   ?? false,
+          fileName: still.fileName ?? '',
+        };
+      }
+    }
+
+    return { players, stillPool };
+  }
+
+  _isConnected() {
+    return this._status === 'connected' && this._atem !== null;
+  }
+}
+
+module.exports = new AtemManager();
