@@ -5,13 +5,14 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import FairlightMixer from '@/components/FairlightMixer';
-import MediaPlayer    from '@/components/MediaPlayer';
+import FairlightMixer  from '@/components/FairlightMixer';
+import MediaPlayer     from '@/components/MediaPlayer';
+import VideoSwitcher   from '@/components/VideoSwitcher';
 import ConnectionPanel from '@/components/ConnectionPanel';
 import { useSocket } from '@/hooks/useSocket';
 import { useATEM }   from '@/hooks/useATEM';
 
-type ActiveTab = 'audio' | 'media';
+type ActiveTab = 'video' | 'audio' | 'media';
 
 export default function HomePage() {
   const { socket, socketStatus, serverUrl, connect: connectServer } = useSocket();
@@ -21,6 +22,7 @@ export default function HomePage() {
     audioState,
     vuState,
     mediaState,
+    videoState,
     atemIP,
     connectATEM,
     disconnectATEM,
@@ -30,9 +32,18 @@ export default function HomePage() {
     setMasterGain,
     setMasterBalance,
     setMediaPlayerStill,
+    setPreviewInput,
+    setProgramInput,
+    performAuto,
+    performCut,
+    setTransitionStyle,
+    setTransitionPosition,
+    performFTB,
+    setDSKOnAir,
+    autoDSKTransition,
   } = useATEM(socket);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('audio');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('video');
 
   // Prevent body scroll on mobile PWA
   useEffect(() => {
@@ -57,7 +68,22 @@ export default function HomePage() {
       />
 
       {/* Tab content — fills all space above tab bar */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden relative">
+        {activeTab === 'video' && (
+          <VideoSwitcher
+            videoState={videoState}
+            isConnected={isConnected}
+            onSetPreviewInput={setPreviewInput}
+            onSetProgramInput={setProgramInput}
+            onPerformAuto={performAuto}
+            onPerformCut={performCut}
+            onSetTransitionStyle={setTransitionStyle}
+            onSetTransitionPosition={setTransitionPosition}
+            onPerformFTB={performFTB}
+            onSetDSKOnAir={setDSKOnAir}
+            onAutoDSKTransition={autoDSKTransition}
+          />
+        )}
         {activeTab === 'audio' && (
           <FairlightMixer
             audioState={audioState}
@@ -81,6 +107,12 @@ export default function HomePage() {
 
       {/* Tab bar */}
       <div className="flex shrink-0 border-t border-navy-700/60 bg-navy-950">
+        <TabButton
+          label="VIDEO"
+          icon={<VideoIcon />}
+          active={activeTab === 'video'}
+          onClick={() => setActiveTab('video')}
+        />
         <TabButton
           label="AUDIO"
           icon={<AudioIcon />}
@@ -133,6 +165,15 @@ function TabButton({
         </span>
       )}
     </button>
+  );
+}
+
+function VideoIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="1" y="3" width="10" height="10" rx="1" strokeLinecap="round" />
+      <path d="M11 6l4-2v8l-4-2V6z" strokeLinejoin="round" />
+    </svg>
   );
 }
 

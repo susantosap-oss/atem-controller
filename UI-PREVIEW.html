@@ -176,6 +176,85 @@
   .tab-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
   .tab-pane{display:flex;flex-direction:column;height:100%}
   .tab-pane.hidden{display:none}
+
+  /* ── Video Switcher ─────────────────────────── */
+  .video-container{flex:1;overflow-y:auto;padding:12px 12px 8px;display:flex;flex-direction:column;gap:0}
+  .video-divider{border:none;border-top:1px solid rgba(51,65,85,.5);margin:8px 0}
+  .section-label-sm{font-size:8px;color:#64748b;text-transform:uppercase;
+    letter-spacing:.2em;font-weight:700;margin-bottom:5px}
+  .video-header{display:flex;align-items:center;padding:8px 16px;background:#0f172a;
+    border-bottom:1px solid rgba(51,65,85,.7);flex-shrink:0}
+  .video-footer{display:flex;align-items:center;padding:4px 16px;background:#020817;
+    border-top:1px solid rgba(30,41,59,.6);flex-shrink:0}
+
+  /* ── Single combined source row ─────────────── */
+  .sources-row{display:flex;gap:5px;margin-bottom:10px}
+  .src-btn{flex:1;min-width:40px;padding:12px 2px 10px;border-radius:8px;border:1px solid;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    cursor:pointer;transition:.15s;font-size:12px;font-weight:900;background:none;line-height:1}
+  .src-btn .src-state{font-size:8px;font-weight:700;letter-spacing:.08em}
+  .src-btn.pgm-state{background:#b91c1c;color:#fff;border-color:#ef4444;
+    box-shadow:0 0 14px rgba(185,28,28,.5)}
+  .src-btn.pvw-state{background:#15803d;color:#fff;border-color:#22c55e;
+    box-shadow:0 0 14px rgba(21,128,61,.5)}
+  .src-btn.no-state{background:#1e293b;color:#64748b;border-color:#334155}
+  .pgm-state .src-state{color:#fca5a5}
+  .pvw-state .src-state{color:#86efac}
+  .no-state .src-state{color:#1e293b}
+
+  /* ── T-Bar (MetaController style) ───────────── */
+  .tbar-section{margin-bottom:10px}
+  .tbar-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+  .tbar-lbl-pgm{font-size:9px;font-weight:700;letter-spacing:.15em;color:#f87171;text-transform:uppercase}
+  .tbar-lbl-pvw{font-size:9px;font-weight:700;letter-spacing:.15em;color:#86efac;text-transform:uppercase}
+  .tbar-pct{font-size:10px;font-family:monospace;color:#64748b}
+  .tbar-track{position:relative;height:52px;background:#0f172a;border-radius:10px;
+    border:1px solid #334155;cursor:grab;touch-action:none;overflow:hidden;user-select:none}
+  .tbar-track:active{cursor:grabbing}
+  .tbar-fill-pgm{position:absolute;top:0;left:0;bottom:0;pointer-events:none;
+    background:linear-gradient(to right,rgba(185,28,28,.75),transparent)}
+  .tbar-fill-pvw{position:absolute;top:0;right:0;bottom:0;pointer-events:none;
+    background:linear-gradient(to left,rgba(21,128,61,.75),transparent)}
+  .tbar-thumb{position:absolute;top:7px;bottom:7px;width:20px;
+    background:#cbd5e1;border-radius:5px;transform:translateX(-50%);pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    box-shadow:0 2px 10px rgba(0,0,0,.7)}
+  .tbar-grip{width:10px;height:1.5px;background:rgba(0,0,0,.4);border-radius:1px}
+
+  /* ── Bottom controls row (T-Style + AUTO/CUT) ── */
+  .bottom-controls-row{display:flex;gap:8px;align-items:flex-end}
+  .tstyle-col{flex-shrink:0;display:flex;flex-direction:column;gap:4px}
+  .tstyle-btns{display:flex;flex-direction:column;gap:3px}
+  .tstyle-btn{padding:5px 14px;border-radius:5px;border:none;cursor:pointer;
+    font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;transition:.15s}
+  .tstyle-active{background:#1d4ed8;color:#fff;box-shadow:0 2px 8px rgba(29,78,216,.4)}
+  .tstyle-inactive{background:#1e293b;color:#64748b}
+  .switch-col{flex:1;display:flex;flex-direction:column;gap:4px}
+  .auto-cut-row{display:flex;gap:8px}
+  .action-btn{flex:1;padding:18px 8px;border-radius:8px;border:none;cursor:pointer;
+    font-size:14px;font-weight:900;letter-spacing:.2em;text-transform:uppercase;transition:.15s}
+  .btn-auto{background:#15803d;color:#fff}
+  .btn-cut{background:#b91c1c;color:#fff}
+
+  /* ── FTB + DSK row ───────────────────────────── */
+  .ftb-dsk-row{display:flex;gap:8px;align-items:stretch}
+  .btn-ftb{flex:1;padding:12px 6px;background:#1e293b;color:#cbd5e1;
+    border:1px solid #334155;border-radius:8px;cursor:pointer;
+    font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+  .dsk-col{display:flex;flex-direction:column;gap:4px;min-width:52px}
+  .dsk-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:8px 6px;border-radius:8px;border:1px solid;cursor:pointer;transition:.15s;
+    background:none;width:100%}
+  .dsk-btn.dsk-off{background:#1e293b;border-color:#334155;color:#64748b}
+  .dsk-btn.dsk-on{background:#b91c1c;border-color:#ef4444;color:#fff;
+    box-shadow:0 2px 10px rgba(185,28,28,.5)}
+  .dsk-btn .dsk-label{font-size:10px;font-weight:900;letter-spacing:.15em}
+  .dsk-btn .dsk-status{font-size:8px;font-weight:600;margin-top:2px}
+  .dsk-btn .dsk-source{font-size:7px;font-family:monospace;margin-top:3px;opacity:.65}
+  .dsk-auto{width:100%;padding:4px;border-radius:5px;border:1px solid #334155;
+    background:#1e293b;color:#64748b;cursor:pointer;font-size:8px;font-weight:700;
+    letter-spacing:.15em;text-transform:uppercase;transition:.15s}
+  .dsk-auto:hover{color:#94a3b8;border-color:#475569}
 </style>
 </head>
 <body>
@@ -226,8 +305,76 @@
 <!-- ═══ TAB CONTENT ════════════════════════════════════════════ -->
 <div class="tab-content">
 
+  <!-- ── VIDEO SWITCHER TAB ───────────────────────────────── -->
+  <div class="tab-pane" id="pane-video">
+
+    <div class="video-header">
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#3b82f6" stroke-width="1.5" style="margin-right:8px">
+        <rect x="2" y="4" width="16" height="12" rx="1.5"/>
+        <line x1="6" y1="4" x2="6" y2="16"/><line x1="10" y1="4" x2="10" y2="16"/><line x1="14" y1="4" x2="14" y2="16"/>
+      </svg>
+      <span class="mixer-title">VIDEO SWITCHER</span>
+      <span style="margin-left:auto;font-size:11px;color:#64748b">ATEM Mini Pro — ME1</span>
+    </div>
+
+    <div class="video-container" id="video-pane-body">
+
+      <!-- Single combined PGM/PVW source row -->
+      <div class="sources-row" id="sources-row"></div>
+
+      <!-- T-Bar (MetaController style) -->
+      <div class="tbar-section">
+        <div class="tbar-header">
+          <span id="tbar-lbl-left"  class="tbar-lbl-pgm">PGM</span>
+          <span class="tbar-pct" id="tbar-pct">0%</span>
+          <span id="tbar-lbl-right" class="tbar-lbl-pvw">PVW</span>
+        </div>
+        <div class="tbar-track" id="tbar-track">
+          <div class="tbar-fill-pgm" id="tbar-fill-pgm" style="width:100%"></div>
+          <div class="tbar-fill-pvw" id="tbar-fill-pvw" style="width:0%"></div>
+          <div class="tbar-thumb" id="tbar-thumb" style="left:0%">
+            <div class="tbar-grip"></div>
+            <div class="tbar-grip"></div>
+            <div class="tbar-grip"></div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="video-divider">
+
+      <!-- T-Style (column) + AUTO/CUT (flex-1) -->
+      <div class="bottom-controls-row">
+        <div class="tstyle-col">
+          <p class="section-label-sm">T-Style</p>
+          <div class="tstyle-btns" id="trans-style-btns"></div>
+        </div>
+        <div class="switch-col">
+          <p class="section-label-sm">Switch</p>
+          <div class="auto-cut-row">
+            <button class="action-btn btn-auto" id="btn-auto" onclick="doAuto()">AUTO</button>
+            <button class="action-btn btn-cut"  onclick="doCut()">CUT</button>
+          </div>
+        </div>
+      </div>
+
+      <hr class="video-divider">
+
+      <!-- FTB + DSK row -->
+      <div class="ftb-dsk-row">
+        <button class="btn-ftb" id="btn-ftb" onclick="doFTB()">FADE TO<br>BLACK</button>
+        <div id="dsk-container" style="display:flex;gap:8px"></div>
+      </div>
+
+    </div>
+
+    <div class="video-footer">
+      <span style="font-size:10px;color:#334155">BLACKMAGIC DESIGN — ATEM REMOTE</span>
+      <span style="margin-left:auto;font-size:10px;color:#334155">Tap PVW to preview · AUTO / CUT to take</span>
+    </div>
+  </div>
+
   <!-- ── AUDIO TAB ─────────────────────────────────────────── -->
-  <div class="tab-pane" id="pane-audio">
+  <div class="tab-pane hidden" id="pane-audio">
 
     <!-- Mixer Header -->
     <div class="mixer-header">
@@ -313,7 +460,11 @@
 
 <!-- ═══ TAB BAR ════════════════════════════════════════════════ -->
 <div class="tab-bar">
-  <button class="tab-btn active" id="tab-audio" onclick="switchTab('audio')">
+  <button class="tab-btn active" id="tab-video" onclick="switchTab('video')">
+    <svg viewBox="0 0 16 16"><rect x="1" y="3" width="10" height="10" rx="1" stroke-linecap="round"/><path d="M11 6l4-2v8l-4-2V6z" stroke-linejoin="round"/></svg>
+    VIDEO
+  </button>
+  <button class="tab-btn" id="tab-audio" onclick="switchTab('audio')">
     <svg viewBox="0 0 16 16"><line x1="3" y1="4" x2="3" y2="12" stroke-linecap="round"/><line x1="6" y1="6" x2="6" y2="12" stroke-linecap="round"/><line x1="9" y1="3" x2="9" y2="12" stroke-linecap="round"/><line x1="12" y1="5" x2="12" y2="12" stroke-linecap="round"/><line x1="1" y1="13" x2="15" y2="13" stroke-linecap="round"/></svg>
     AUDIO
   </button>
@@ -506,11 +657,248 @@ stills.forEach((s, i) => {
 
 // ── Tab switching ────────────────────────────────────────────
 function switchTab(tab) {
-  document.getElementById('pane-audio').classList.toggle('hidden', tab !== 'audio');
-  document.getElementById('pane-media').classList.toggle('hidden', tab !== 'media');
-  document.getElementById('tab-audio').classList.toggle('active', tab === 'audio');
-  document.getElementById('tab-media').classList.toggle('active', tab === 'media');
+  ['video','audio','media'].forEach(t => {
+    document.getElementById('pane-'+t).classList.toggle('hidden', tab !== t);
+    document.getElementById('tab-'+t).classList.toggle('active', tab === t);
+  });
 }
+
+// ── Video Switcher ───────────────────────────────────────────
+const videoSources = [
+  { id:1,    short:'1',   label:'Cam 1'  },
+  { id:2,    short:'2',   label:'Cam 2'  },
+  { id:3,    short:'3',   label:'Laptop' },
+  { id:4,    short:'4',   label:'HDMI 4' },
+  { id:3010, short:'MP1', label:'MP 1'   },
+  { id:3020, short:'MP2', label:'MP 2'   },
+  { id:0,    short:'BLK', label:'Black'  },
+];
+let videoPgm   = 1;    // current program source id
+let videoPvw   = 2;    // current preview source id
+let videoStyle = 0;    // 0=Mix, 1=Dip, 2=Wipe
+let videoFTB   = false;
+let transAnimating = false;
+
+const transStyleLabels = ['MIX','DIP','WIPE'];
+
+function renderSources() {
+  document.getElementById('sources-row').innerHTML = videoSources.map(src => {
+    const isPgm = src.id === videoPgm;
+    const isPvw = src.id === videoPvw;
+    const cls = isPgm ? 'pgm-state' : isPvw ? 'pvw-state' : 'no-state';
+    const stateLabel = isPgm ? 'PGM' : isPvw ? 'PVW' : '···';
+    return `<button class="src-btn ${cls}" onclick="setPvw(${src.id})" title="${src.label}">
+      <span>${src.short}</span>
+      <span class="src-state">${stateLabel}</span>
+    </button>`;
+  }).join('');
+}
+
+function renderTransStyle() {
+  document.getElementById('trans-style-btns').innerHTML = transStyleLabels.map((lbl,i) =>
+    `<button class="tstyle-btn ${videoStyle===i?'tstyle-active':'tstyle-inactive'}"
+      onclick="setTransStyle(${i})">${lbl}</button>`
+  ).join('');
+}
+
+function renderVideo() {
+  renderSources();
+  renderTransStyle();
+  if (document.getElementById('dsk-container')) renderDSK();
+  const ftbBtn = document.getElementById('btn-ftb');
+  if (videoFTB) {
+    ftbBtn.innerHTML = '■ FTB ON';
+    ftbBtn.style.background = '#111';
+    ftbBtn.style.color = '#f87171';
+    ftbBtn.style.borderColor = '#7f1d1d';
+  } else {
+    ftbBtn.innerHTML = 'FADE TO<br>BLACK';
+    ftbBtn.style.background = '';
+    ftbBtn.style.color = '';
+    ftbBtn.style.borderColor = '';
+  }
+}
+
+function setPvw(id) {
+  videoPvw = id;
+  renderVideo();
+}
+function setTransStyle(i) {
+  videoStyle = i;
+  renderTransStyle();
+}
+function doCut() {
+  videoPgm = videoPvw;
+  const srcIds = videoSources.map(s=>s.id).filter(id=>id!==videoPgm);
+  videoPvw = srcIds[0] || 0;
+  renderVideo();
+}
+function doAuto() {
+  if (transAnimating) return;
+  transAnimating = true;
+  const btn = document.getElementById('btn-auto');
+  btn.style.background = '#f59e0b';
+  btn.style.color = '#000';
+  // Direction depends on current flip state
+  const startPct = tbarFlipped ? 100 : 0;
+  const endPct   = tbarFlipped ? 0   : 100;
+  const step     = tbarFlipped ? -4  : 4;
+  let p = startPct;
+  const iv = setInterval(() => {
+    p += step;
+    setTbar(tbarFlipped ? Math.max(endPct, p) : Math.min(endPct, p));
+    const done = tbarFlipped ? p <= endPct : p >= endPct;
+    if (done) {
+      clearInterval(iv);
+      setTimeout(() => {
+        btn.style.background = '';
+        btn.style.color = '';
+        transAnimating = false;
+        doCut();
+        tbarFlipped = !tbarFlipped;
+        setTbar(endPct);
+      }, 120);
+    }
+  }, 30);
+}
+function doFTB() {
+  videoFTB = !videoFTB;
+  renderVideo();
+}
+
+// ── T-Bar (see-saw / flip-flop) ───────────────────────────────
+// tbarFlipped: false = PGM on left (thumb starts at 0%), drag → right
+//              true  = PGM on right (thumb at 100%), drag ← left
+let tbarDragging = false;
+let tbarFlipped  = false;
+let tbarCurrentPct = 0;
+
+function setTbar(pct) {
+  pct = Math.max(0, Math.min(100, pct));
+  tbarCurrentPct = pct;
+
+  // Thumb position (always physical left→right)
+  document.getElementById('tbar-thumb').style.left = pct + '%';
+  document.getElementById('tbar-pct').textContent = Math.round(pct) + '%';
+
+  // Fills: PGM side shrinks as thumb moves toward PVW side
+  const pgmFill = document.getElementById('tbar-fill-pgm');
+  const pvwFill = document.getElementById('tbar-fill-pvw');
+
+  if (!tbarFlipped) {
+    // PGM left → red fades from left, green grows from right
+    pgmFill.style.cssText = `position:absolute;top:0;left:0;bottom:0;width:${100-pct}%;
+      background:linear-gradient(to right,rgba(185,28,28,.8),transparent);pointer-events:none`;
+    pvwFill.style.cssText = `position:absolute;top:0;right:0;bottom:0;width:${pct}%;
+      background:linear-gradient(to left,rgba(21,128,61,.8),transparent);pointer-events:none`;
+  } else {
+    // PGM right → red fades from right, green grows from left
+    pgmFill.style.cssText = `position:absolute;top:0;left:0;bottom:0;width:${pct}%;
+      background:linear-gradient(to right,rgba(21,128,61,.8),transparent);pointer-events:none`;
+    pvwFill.style.cssText = `position:absolute;top:0;right:0;bottom:0;width:${100-pct}%;
+      background:linear-gradient(to left,rgba(185,28,28,.8),transparent);pointer-events:none`;
+  }
+
+  // Labels: swap when flipped
+  const lblLeft  = document.getElementById('tbar-lbl-left');
+  const lblRight = document.getElementById('tbar-lbl-right');
+  if (!tbarFlipped) {
+    lblLeft.textContent  = 'PGM'; lblLeft.className  = 'tbar-lbl-pgm';
+    lblRight.textContent = 'PVW'; lblRight.className = 'tbar-lbl-pvw';
+  } else {
+    lblLeft.textContent  = 'PVW'; lblLeft.className  = 'tbar-lbl-pvw';
+    lblRight.textContent = 'PGM'; lblRight.className = 'tbar-lbl-pgm';
+  }
+}
+
+function getTbarPct(e) {
+  const rect = document.getElementById('tbar-track').getBoundingClientRect();
+  const x = e.touches ? e.touches[0].clientX : e.clientX;
+  return ((x - rect.left) / rect.width) * 100;
+}
+
+(function initTbar() {
+  const track = document.getElementById('tbar-track');
+  track.addEventListener('mousedown', e => {
+    tbarDragging = true; setTbar(getTbarPct(e)); e.preventDefault();
+  });
+  track.addEventListener('touchstart', e => {
+    tbarDragging = true; setTbar(getTbarPct(e)); e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('mousemove', e => {
+    if (!tbarDragging) return; setTbar(getTbarPct(e));
+  });
+  document.addEventListener('touchmove', e => {
+    if (!tbarDragging) return; setTbar(getTbarPct(e)); e.preventDefault();
+  }, { passive: false });
+
+  function release() {
+    if (!tbarDragging) return;
+    tbarDragging = false;
+    const pct = tbarCurrentPct;
+
+    if (!tbarFlipped && pct >= 98) {
+      // Forward transition complete: thumb stays at RIGHT, labels flip
+      doCut();
+      tbarFlipped = true;
+      setTbar(100);
+    } else if (tbarFlipped && pct <= 2) {
+      // Reverse transition complete: thumb stays at LEFT, labels flip back
+      doCut();
+      tbarFlipped = false;
+      setTbar(0);
+    }
+    // If not at an extreme, just leave thumb where it is
+  }
+  document.addEventListener('mouseup',  release);
+  document.addEventListener('touchend', release);
+
+  // Init renders
+  setTbar(0);
+})();
+
+// ── DSK (Downstream Keyer) ───────────────────────────────────
+const dskData = [
+  { onAir: true,  fillSource: 3010, fillLabel: 'MP 1', autoRate: 25 },  // DSK1 = Logo via MP1
+  { onAir: false, fillSource: 3020, fillLabel: 'MP 2', autoRate: 25 },  // DSK2 = Lower third via MP2
+];
+
+function renderDSK() {
+  document.getElementById('dsk-container').innerHTML = dskData.map((dsk, i) => `
+    <div class="dsk-col">
+      <button class="dsk-btn ${dsk.onAir ? 'dsk-on' : 'dsk-off'}" onclick="toggleDSK(${i})">
+        <span class="dsk-label">DSK${i+1}</span>
+        <span class="dsk-status">${dsk.onAir ? '● ON' : '○ OFF'}</span>
+        <span class="dsk-source">${dsk.fillLabel}</span>
+      </button>
+      <button class="dsk-auto" onclick="autoDSK(${i})">AUTO</button>
+    </div>`).join('');
+}
+
+function toggleDSK(i) {
+  dskData[i].onAir = !dskData[i].onAir;
+  renderDSK();
+}
+
+function autoDSK(i) {
+  // Animate toggle: flash amber then switch state
+  const cols = document.querySelectorAll('.dsk-col');
+  const btn = cols[i]?.querySelector('.dsk-btn');
+  if (!btn) return;
+  btn.style.background = '#d97706';
+  btn.style.borderColor = '#f59e0b';
+  btn.style.color = '#000';
+  setTimeout(() => {
+    dskData[i].onAir = !dskData[i].onAir;
+    renderDSK();
+  }, 600);
+}
+
+// Init DSK
+renderDSK();
+
+// Init video tab
+renderVideo();
 
 // ── Connection panel toggle ──────────────────────────────────
 function toggleConn() {

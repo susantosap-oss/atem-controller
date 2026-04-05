@@ -42,6 +42,8 @@ class AtemManager extends EventEmitter {
       this.emit('audioState', this._buildAudioState());
       const ms = this._buildMediaState();
       if (ms) this.emit('mediaState', ms);
+      const vs = this._buildVideoState();
+      if (vs) this.emit('videoState', vs);
     });
 
     this._atem.on('disconnected', () => {
@@ -120,6 +122,13 @@ class AtemManager extends EventEmitter {
       if (ms) this.emit('mediaState', ms);
     }
 
+    // Emit video state when ME inputs/transition change
+    const videoStatePaths = pathKeys.filter(k => k.startsWith('video'));
+    if (videoStatePaths.length > 0) {
+      const vs = this._buildVideoState();
+      if (vs) this.emit('videoState', vs);
+    }
+
     // Emit VU meter data — throttled externally by socket-bridge
     const hasLevels = pathKeys.some(k => k.includes('levels') || k.includes('Level'));
     if (hasLevels && this._state?.audio) {
@@ -130,6 +139,7 @@ class AtemManager extends EventEmitter {
 
   buildAudioState() { return this._buildAudioState(); }
   buildMediaState() { return this._buildMediaState(); }
+  buildVideoState() { return this._buildVideoState(); }
 
   _buildAudioState() {
     if (!this._state?.audio) return null;
@@ -227,12 +237,106 @@ class AtemManager extends EventEmitter {
     await this._atem.setAudioMixerMasterProps({ balance });
   }
 
+  // ── Video Switcher Commands ─────────────────────────────────
+
+  async setPreviewInput(source) {
+    if (!this._isConnected()) return;
+    await this._atem.changePreviewInput(0, source);
+  }
+
+  async setProgramInput(source) {
+    if (!this._isConnected()) return;
+    await this._atem.changeProgramInput(0, source);
+  }
+
+  async performAuto() {
+    if (!this._isConnected()) return;
+    await this._atem.autoTransition(0);
+  }
+
+  async performCut() {
+    if (!this._isConnected()) return;
+    await this._atem.cut(0);
+  }
+
+  async setTransitionStyle(style) {
+    if (!this._isConnected()) return;
+    await this._atem.setTransitionStyle(0, { style });
+  }
+
+  async setTransitionPosition(position) {
+    // position: 0–9999 (0 = start, 9999 = end)
+    if (!this._isConnected()) return;
+    await this._atem.setMixEffectTransitionPosition(0, position);
+  }
+
+  async performFadeToBlack() {
+    if (!this._isConnected()) return;
+    await this._atem.fadeToBlack(0);
+  }
+
+  // ── Downstream Keyer Commands ───────────────────────────────
+
+  async setDSKOnAir(keyerIndex, onAir) {
+    if (!this._isConnected()) return;
+    await this._atem.setDownstreamKeyerOnAir(keyerIndex, onAir);
+  }
+
+  async autoDSKTransition(keyerIndex) {
+    if (!this._isConnected()) return;
+    await this._atem.autoDownstreamKey(keyerIndex);
+  }
+
   // ── Media Player Commands ───────────────────────────────────
 
   async setMediaPlayerStill(playerIndex, stillIndex) {
     if (!this._isConnected()) return;
     // playerIndex: 0=MP1, 1=MP2 | stillIndex: 0-based slot
     await this._atem.setMediaPlayerSource(playerIndex, { sourceType: 1, stillIndex });
+  }
+
+  // ── Video State Builder ─────────────────────────────────────
+
+  _buildVideoState() {
+    if (!this._state?.video) return null;
+    const me = this._state.video.ME?.[0];
+    if (!me) return null;
+
+    // Downstream keyers (DSK1 = index 0, DSK2 = index 1)
+    const dsk = [0, 1].map(i => {
+      const d = this._state.video.downstreamKeyers?.[i];
+      return {
+        onAir:        d?.onAir        ?? false,
+        inTransition: d?.inTransition ?? false,
+        autoRate:     d?.autoRate     ?? 25,
+        fillSource:   d?.sources?.fillSource ?? 0,
+        cutSource:    d?.sources?.cutSource  ?? 0,
+      };
+    });
+
+    return {
+      programInput: me.programInput ?? 0,
+      previewInput: me.previewInput ?? 0,
+      transitionStyle: me.transitionSettings?.style ?? 0,
+      transitionInProgress: me.transitionInProgress ?? false,
+      transitionPosition: me.transitionPosition ?? 0,
+      fadeToBlack: {
+        isFullyBlack: me.fadeToBlack?.isFullyBlack ?? false,
+        inTransition: me.fadeToBlack?.inTransition ?? false,
+      },
+      dsk,
+      inputLabels: this._buildVideoInputLabels(),
+    };
+  }
+
+  _buildVideoInputLabels() {
+    const sources = { 1: 'CH 1', 2: 'CH 2', 3: 'CH 3', 4: 'CH 4', 3010: 'MP 1', 3020: 'MP 2', 0: 'BLK' };
+    const labels = {};
+    for (const [id, fallback] of Object.entries(sources)) {
+      const shortName = this._state?.settings?.inputs?.[Number(id)]?.shortName?.trim();
+      labels[id] = shortName || fallback;
+    }
+    return labels;
   }
 
   // ── Media State Builder ─────────────────────────────────────

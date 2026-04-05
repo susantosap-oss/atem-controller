@@ -22,6 +22,20 @@ let lastVuSnapshot = {};
 
 function start(port) {
   httpServer = createServer();
+
+  // ── EADDRINUSE guard ──────────────────────────────────────────
+  httpServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[WS] FATAL: Port ${port} is already in use.`);
+      console.error(`[WS] Kill the existing process first, then restart.`);
+      console.error(`[WS] Windows: netstat -ano | findstr :${port}  then  taskkill /PID <pid> /F`);
+      console.error(`[WS] Linux/Mac: lsof -ti:${port} | xargs kill -9`);
+      if (require.main !== module) process.exit(1); // standalone mode: exit
+    } else {
+      console.error('[WS] Server error:', err);
+    }
+  });
+
   io = new Server(httpServer, {
     cors: { origin: '*', methods: ['GET', 'POST'] },
     transports: ['websocket', 'polling'],
@@ -39,6 +53,10 @@ function start(port) {
 
   atemManager.on('mediaState', (data) => {
     if (data) io.emit('atem:mediaState', data);
+  });
+
+  atemManager.on('videoState', (data) => {
+    if (data) io.emit('atem:videoState', data);
   });
 
   atemManager.on('vuMeter', (levels) => {
@@ -62,12 +80,14 @@ function start(port) {
       },
     });
 
-    // Send current audio + media state if connected
+    // Send current audio + media + video state if connected
     if (atemManager.status === 'connected' && atemManager.state) {
       const audioState = atemManager.buildAudioState();
       if (audioState) socket.emit('atem:audioState', audioState);
       const mediaState = atemManager.buildMediaState();
       if (mediaState) socket.emit('atem:mediaState', mediaState);
+      const videoState = atemManager.buildVideoState();
+      if (videoState) socket.emit('atem:videoState', videoState);
     }
 
     // ── Client → Server events ──────────────────────────────
@@ -107,6 +127,44 @@ function start(port) {
 
     socket.on('atem:setMediaPlayerStill', async ({ playerIndex, stillIndex }) => {
       await atemManager.setMediaPlayerStill(playerIndex, stillIndex);
+    });
+
+    // Video switcher commands
+    socket.on('atem:setPreviewInput', async ({ source }) => {
+      await atemManager.setPreviewInput(source);
+    });
+
+    socket.on('atem:setProgramInput', async ({ source }) => {
+      await atemManager.setProgramInput(source);
+    });
+
+    socket.on('atem:performAuto', async () => {
+      await atemManager.performAuto();
+    });
+
+    socket.on('atem:performCut', async () => {
+      await atemManager.performCut();
+    });
+
+    socket.on('atem:setTransitionStyle', async ({ style }) => {
+      await atemManager.setTransitionStyle(style);
+    });
+
+    socket.on('atem:setTransitionPosition', async ({ position }) => {
+      await atemManager.setTransitionPosition(position);
+    });
+
+    socket.on('atem:performFTB', async () => {
+      await atemManager.performFadeToBlack();
+    });
+
+    // Downstream Keyer commands
+    socket.on('atem:setDSKOnAir', async ({ keyerIndex, onAir }) => {
+      await atemManager.setDSKOnAir(keyerIndex, onAir);
+    });
+
+    socket.on('atem:autoDSKTransition', async ({ keyerIndex }) => {
+      await atemManager.autoDSKTransition(keyerIndex);
     });
 
     // Server config update from PWA
@@ -178,3 +236,30 @@ function stop() {
 }
 
 module.exports = { start, stop };
+
+// ── Standalone entry point ────────────────────────────────────
+// Run directly: node src/socket-bridge.js
+// Reads config.json from CWD (or DEFAULTS) — no Electron required.
+if (require.main === module) {
+  const Config = require('./config');
+  (async () => {
+    const cfg = await Config.getAll();
+    const port = cfg.serverPort || 4000;
+    console.log(`[WS] Standalone mode — starting on port ${port}`);
+    start(port);
+
+    if (cfg.atemIP) {
+      console.log(`[ATEM] Auto-connecting to ${cfg.atemIP}...`);
+      atemManager.connect(cfg.atemIP);
+    } else {
+      console.log('[ATEM] No atemIP in config — connect via socket event atem:connect');
+    }
+
+    process.on('SIGINT', () => {
+      console.log('\n[WS] Shutting down...');
+      stop();
+      atemManager.disconnect();
+      process.exit(0);
+    });
+  })();
+}

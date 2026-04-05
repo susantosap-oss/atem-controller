@@ -146,32 +146,6 @@ function StillSlotCard({
   );
 }
 
-// ── Empty / disconnected state ─────────────────────────────────
-
-function EmptyState({ isConnected }: { isConnected: boolean }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
-      <div className="w-16 h-16 rounded-full bg-navy-800 border border-navy-700 flex items-center justify-center">
-        <svg className="w-8 h-8 text-navy-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <rect x="3" y="3" width="18" height="14" rx="2" strokeLinecap="round" strokeLinejoin="round" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8m-4-4v4" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M10 10l2-2 2 2m-2-2v4" />
-        </svg>
-      </div>
-      <div>
-        <p className="text-navy-300 font-semibold">
-          {isConnected ? 'No Media State' : 'ATEM Not Connected'}
-        </p>
-        <p className="text-navy-500 text-sm mt-1">
-          {isConnected
-            ? 'Waiting for media pool data from ATEM...'
-            : 'Connect to ATEM to access Media Pool.'}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ── Main component ─────────────────────────────────────────────
 
 export default function MediaPlayer({
@@ -205,35 +179,43 @@ export default function MediaPlayer({
         </div>
       </div>
 
-      {!mediaState ? (
-        <EmptyState isConnected={isConnected} />
-      ) : (
-        <div className="flex flex-col flex-1 overflow-hidden gap-0">
+      {/* ── Always show grid — greyed when disconnected ────── */}
+      <div className={`flex flex-col flex-1 overflow-hidden relative
+                       ${!isConnected ? 'pointer-events-none' : ''}`}>
 
-          {/* MP1 / MP2 status row */}
-          <div className="flex gap-2 px-3 py-2 shrink-0 border-b border-navy-800/60">
-            <MPCard label="Media Player 1" playerIndex={0} mediaState={mediaState} />
-            <MPCard label="Media Player 2" playerIndex={1} mediaState={mediaState} />
+        {/* Grey overlay when disconnected */}
+        {!isConnected && (
+          <div className="absolute inset-0 z-10 bg-navy-950/60 backdrop-blur-[1px]
+                          flex items-center justify-center pointer-events-none">
+            <span className="text-[10px] text-navy-500 uppercase tracking-widest font-semibold">
+              Tidak terhubung ke ATEM
+            </span>
           </div>
+        )}
 
-          {/* Still pool grid — scrollable */}
-          <div className="flex-1 overflow-y-auto px-3 py-2">
-            <div className="text-[10px] text-navy-600 uppercase tracking-widest mb-2 px-0.5">
-              Still Pool — tap a slot to assign
-            </div>
-            <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-              {Array.from({ length: STILL_SLOTS }, (_, i) => (
-                <StillSlotCard
-                  key={i}
-                  slotIndex={i}
-                  mediaState={mediaState}
-                  onAssign={(playerIndex) => onSetMediaPlayerStill(playerIndex, i)}
-                />
-              ))}
-            </div>
+        {/* MP1 / MP2 status row */}
+        <div className="flex gap-2 px-3 py-2 shrink-0 border-b border-navy-800/60">
+          <MPCard label="Media Player 1" playerIndex={0} mediaState={mediaState} />
+          <MPCard label="Media Player 2" playerIndex={1} mediaState={mediaState} />
+        </div>
+
+        {/* Still pool grid — scrollable */}
+        <div className="flex-1 overflow-y-auto px-3 py-2">
+          <div className="text-[10px] text-navy-600 uppercase tracking-widest mb-2 px-0.5">
+            Still Pool — tap a slot to assign
+          </div>
+          <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            {Array.from({ length: STILL_SLOTS }, (_, i) => (
+              <StillSlotCard
+                key={i}
+                slotIndex={i}
+                mediaState={mediaState}
+                onAssign={(playerIndex) => onSetMediaPlayerStill(playerIndex, i)}
+              />
+            ))}
           </div>
         </div>
-      )}
+      </div>
 
       {/* Bottom bar */}
       <div className="flex items-center px-4 py-1.5 bg-navy-950

@@ -23,6 +23,19 @@ interface FairlightMixerProps {
 
 const CHANNEL_ORDER_HINTS = [1,2,3,4,5,6,7,8,1301,1302,2001,2002];
 
+// ── Placeholder shown while disconnected ───────────────────────
+const PLACEHOLDER_STATE: AudioState = {
+  channels: {
+    '1':    { gain: 0, balance: 0, mixOption: 0, label: 'HDMI 1' },
+    '2':    { gain: 0, balance: 0, mixOption: 0, label: 'HDMI 2' },
+    '3':    { gain: 0, balance: 0, mixOption: 0, label: 'HDMI 3' },
+    '4':    { gain: 0, balance: 0, mixOption: 0, label: 'HDMI 4' },
+    '1301': { gain: 0, balance: 0, mixOption: 0, label: 'MIC 1'  },
+    '1302': { gain: 0, balance: 0, mixOption: 0, label: 'MIC 2'  },
+  },
+  master: { gain: 0, balance: 0, followFadeToBlack: false },
+};
+
 function sortChannels(channels: Record<string, unknown>): string[] {
   return Object.keys(channels).sort((a, b) => {
     const ai = CHANNEL_ORDER_HINTS.indexOf(Number(a));
@@ -34,28 +47,6 @@ function sortChannels(channels: Record<string, unknown>): string[] {
   });
 }
 
-function EmptyState({ isConnected }: { isConnected: boolean }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
-      <div className="w-16 h-16 rounded-full bg-navy-800 border border-navy-700 flex items-center justify-center">
-        <svg className="w-8 h-8 text-navy-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path strokeLinecap="round" strokeLinejoin="round"
-            d="M9 9l3-3m0 0l3 3m-3-3v8m-4.5 4.5h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 003 10.5v9a2.25 2.25 0 002.25 2.25z"/>
-        </svg>
-      </div>
-      <div>
-        <p className="text-navy-300 font-semibold">
-          {isConnected ? 'No Audio Channels' : 'ATEM Not Connected'}
-        </p>
-        <p className="text-navy-500 text-sm mt-1">
-          {isConnected
-            ? 'Waiting for audio state from ATEM...'
-            : 'Enter the ATEM IP address in the connection panel to get started.'}
-        </p>
-      </div>
-    </div>
-  );
-}
 
 export default function FairlightMixer({
   audioState,
@@ -68,9 +59,12 @@ export default function FairlightMixer({
   onMasterBalanceChange,
 }: FairlightMixerProps) {
 
+  // Use real data when connected, placeholder when not
+  const displayState = audioState ?? PLACEHOLDER_STATE;
+
   const sortedChannelKeys = useMemo(
-    () => audioState ? sortChannels(audioState.channels) : [],
-    [audioState]
+    () => sortChannels(displayState.channels),
+    [displayState]
   );
 
   return (
@@ -80,7 +74,6 @@ export default function FairlightMixer({
       <div className="flex items-center px-4 py-2 bg-navy-900
                       border-b border-navy-700/70 shrink-0">
         <div className="flex items-center gap-2">
-          {/* BMD-style logo accent */}
           <div className="flex gap-0.5">
             {[0,1,2].map(i => (
               <div key={i} className="w-1 h-5 rounded-sm bg-blue-600 opacity-80" />
@@ -91,12 +84,9 @@ export default function FairlightMixer({
           </span>
         </div>
         <div className="ml-auto flex items-center gap-3">
-          {audioState && (
-            <span className="text-[11px] text-navy-500">
-              {sortedChannelKeys.length} CH + MASTER
-            </span>
-          )}
-          {/* Clip indicator */}
+          <span className="text-[11px] text-navy-500">
+            {sortedChannelKeys.length} CH + MASTER
+          </span>
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full bg-red-600/30 border border-red-700/50" />
             <span className="text-[10px] text-navy-500">CLIP</span>
@@ -112,70 +102,76 @@ export default function FairlightMixer({
         </div>
       </div>
 
-      {/* ── Main mixer area ───────────────────────────── */}
-      {!audioState ? (
-        <EmptyState isConnected={isConnected} />
-      ) : (
-        <div className="flex flex-1 overflow-hidden">
+      {/* ── Main mixer area — always shown, greyed when disconnected ── */}
+      <div className={`flex flex-1 overflow-hidden relative ${!isConnected ? 'pointer-events-none' : ''}`}>
 
-          {/* Channel strips — horizontally scrollable */}
-          <div className="flex-1 overflow-x-auto overflow-y-hidden">
-            <div className="flex items-stretch h-full gap-px min-w-max">
-
-              {/* Section label */}
-              <div className="flex flex-col justify-between px-2 py-3 shrink-0">
-                <span className="text-[10px] text-navy-600 uppercase tracking-widest"
-                      style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                  Inputs
-                </span>
-              </div>
-
-              {/* Channel strips */}
-              {sortedChannelKeys.map((key) => {
-                const ch = audioState.channels[key];
-                if (!ch) return null;
-                return (
-                  <div
-                    key={key}
-                    className="flex flex-col border-r border-navy-800/80
-                               bg-navy-900/40 hover:bg-navy-800/30 transition-colors"
-                    style={{ padding: '8px 6px' }}
-                  >
-                    <AudioChannel
-                      index={key}
-                      channel={ch}
-                      levels={vuState[key]}
-                      onGainChange={onGainChange}
-                      onMixOptionChange={onMixOptionChange}
-                      onBalanceChange={onBalanceChange}
-                    />
-                  </div>
-                );
-              })}
-            </div>
+        {/* Grey overlay when disconnected */}
+        {!isConnected && (
+          <div className="absolute inset-0 z-10 bg-navy-950/60 backdrop-blur-[1px]
+                          flex items-center justify-center pointer-events-none">
+            <span className="text-[10px] text-navy-500 uppercase tracking-widest font-semibold">
+              Tidak terhubung ke ATEM
+            </span>
           </div>
+        )}
 
-          {/* Master strip — fixed right */}
-          <div className="border-l-2 border-amber-800/60 bg-amber-950/10
-                          shrink-0 flex flex-col justify-end"
-               style={{ padding: '8px 8px' }}>
-            <AudioChannel
-              index="master"
-              channel={{
-                gain: audioState.master.gain,
-                balance: audioState.master.balance,
-                mixOption: 1, // always on
-                label: 'MASTER',
-              }}
-              levels={vuState['master']}
-              isMaster
-              onGainChange={(_, g) => onMasterGainChange(g)}
-              onMixOptionChange={() => {}}
-              onBalanceChange={(_, b) => onMasterBalanceChange(b)}
-            />
+        {/* Channel strips — horizontally scrollable */}
+        <div className="flex-1 overflow-x-auto overflow-y-hidden">
+          <div className="flex items-stretch h-full gap-px min-w-max">
+
+            {/* Section label */}
+            <div className="flex flex-col justify-between px-2 py-3 shrink-0">
+              <span className="text-[10px] text-navy-600 uppercase tracking-widest"
+                    style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                Inputs
+              </span>
+            </div>
+
+            {/* Channel strips */}
+            {sortedChannelKeys.map((key) => {
+              const ch = displayState.channels[key];
+              if (!ch) return null;
+              return (
+                <div
+                  key={key}
+                  className="flex flex-col border-r border-navy-800/80
+                             bg-navy-900/40 transition-colors"
+                  style={{ padding: '8px 6px' }}
+                >
+                  <AudioChannel
+                    index={key}
+                    channel={ch}
+                    levels={isConnected ? vuState[key] : undefined}
+                    onGainChange={onGainChange}
+                    onMixOptionChange={onMixOptionChange}
+                    onBalanceChange={onBalanceChange}
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
+
+        {/* Master strip — fixed right */}
+        <div className="border-l-2 border-amber-800/60 bg-amber-950/10
+                        shrink-0 flex flex-col justify-end"
+             style={{ padding: '8px 8px' }}>
+          <AudioChannel
+            index="master"
+            channel={{
+              gain: displayState.master.gain,
+              balance: displayState.master.balance,
+              mixOption: 1,
+              label: 'MASTER',
+            }}
+            levels={isConnected ? vuState['master'] : undefined}
+            isMaster
+            onGainChange={(_, g) => onMasterGainChange(g)}
+            onMixOptionChange={() => {}}
+            onBalanceChange={(_, b) => onMasterBalanceChange(b)}
+          />
+        </div>
+      </div>
 
       {/* ── Bottom status bar ─────────────────────────── */}
       <div className="flex items-center px-4 py-1.5 bg-navy-950

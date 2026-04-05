@@ -45,6 +45,30 @@ export interface ServerHandshake {
   atemStatus: ATEMStatus;
 }
 
+// ── Video types ───────────────────────────────────────────────
+
+export interface DSKState {
+  onAir: boolean;
+  inTransition: boolean;
+  autoRate: number;
+  fillSource: number;
+  cutSource: number;
+}
+
+export interface VideoState {
+  programInput: number;
+  previewInput: number;
+  transitionStyle: number;        // 0=Mix, 1=Dip, 2=Wipe
+  transitionInProgress: boolean;
+  transitionPosition: number;     // 0-9999
+  fadeToBlack: {
+    isFullyBlack: boolean;
+    inTransition: boolean;
+  };
+  dsk: DSKState[];                // [DSK1, DSK2]
+  inputLabels: Record<string, string>;
+}
+
 // ── Media types ───────────────────────────────────────────────
 
 export interface MediaPlayerState {
@@ -69,6 +93,7 @@ export interface UseATEMReturn {
   audioState: AudioState | null;
   vuState: VUState;
   mediaState: MediaState | null;
+  videoState: VideoState | null;
   atemIP: string;
   isConnected: boolean;
   connectATEM: (ip: string) => void;
@@ -79,6 +104,15 @@ export interface UseATEMReturn {
   setMasterGain: (gain: number) => void;
   setMasterBalance: (balance: number) => void;
   setMediaPlayerStill: (playerIndex: number, stillIndex: number) => void;
+  setPreviewInput: (source: number) => void;
+  setProgramInput: (source: number) => void;
+  performAuto: () => void;
+  performCut: () => void;
+  setTransitionStyle: (style: number) => void;
+  setTransitionPosition: (position: number) => void;
+  performFTB: () => void;
+  setDSKOnAir: (keyerIndex: number, onAir: boolean) => void;
+  autoDSKTransition: (keyerIndex: number) => void;
 }
 
 // ── VU Interpolation engine ──────────────────────────────────
@@ -92,6 +126,7 @@ export function useATEM(socket: Socket | null): UseATEMReturn {
   const [atemStatus, setAtemStatus] = useState<ATEMStatus>({ status: 'disconnected' });
   const [audioState, setAudioState] = useState<AudioState | null>(null);
   const [mediaState, setMediaState] = useState<MediaState | null>(null);
+  const [videoState, setVideoState] = useState<VideoState | null>(null);
   const [atemIP, setAtemIP] = useState<string>(getStoredAtemIP);
 
   // VU: server-received raw values
@@ -170,6 +205,10 @@ export function useATEM(socket: Socket | null): UseATEMReturn {
       setMediaState(data);
     };
 
+    const onVideoState = (data: VideoState) => {
+      setVideoState(data);
+    };
+
     const onVuMeter = (levels: VUState) => {
       // Merge incoming into raw buffer — RAF loop does the smoothing
       rawVuRef.current = { ...rawVuRef.current, ...levels };
@@ -180,6 +219,7 @@ export function useATEM(socket: Socket | null): UseATEMReturn {
     socket.on('atem:audioState',  onAudioState);
     socket.on('atem:vuMeter',     onVuMeter);
     socket.on('atem:mediaState',  onMediaState);
+    socket.on('atem:videoState',  onVideoState);
 
     return () => {
       socket.off('server:handshake', onHandshake);
@@ -187,6 +227,7 @@ export function useATEM(socket: Socket | null): UseATEMReturn {
       socket.off('atem:audioState',  onAudioState);
       socket.off('atem:vuMeter',     onVuMeter);
       socket.off('atem:mediaState',  onMediaState);
+      socket.off('atem:videoState',  onVideoState);
     };
   }, [socket]);
 
@@ -258,11 +299,63 @@ export function useATEM(socket: Socket | null): UseATEMReturn {
     });
   }, [socket]);
 
+  // ── Video Switcher Commands ──────────────────────────────────
+
+  const setPreviewInput = useCallback((source: number) => {
+    socket?.emit('atem:setPreviewInput', { source });
+    setVideoState(prev => prev ? { ...prev, previewInput: source } : prev);
+  }, [socket]);
+
+  const setProgramInput = useCallback((source: number) => {
+    socket?.emit('atem:setProgramInput', { source });
+    setVideoState(prev => prev ? { ...prev, programInput: source } : prev);
+  }, [socket]);
+
+  const performAuto = useCallback(() => {
+    socket?.emit('atem:performAuto');
+  }, [socket]);
+
+  const performCut = useCallback(() => {
+    socket?.emit('atem:performCut');
+    // Optimistic: swap preview into program
+    setVideoState(prev => prev ? {
+      ...prev,
+      programInput: prev.previewInput,
+    } : prev);
+  }, [socket]);
+
+  const setTransitionStyle = useCallback((style: number) => {
+    socket?.emit('atem:setTransitionStyle', { style });
+    setVideoState(prev => prev ? { ...prev, transitionStyle: style } : prev);
+  }, [socket]);
+
+  const setTransitionPosition = useCallback((position: number) => {
+    socket?.emit('atem:setTransitionPosition', { position });
+  }, [socket]);
+
+  const performFTB = useCallback(() => {
+    socket?.emit('atem:performFTB');
+  }, [socket]);
+
+  const setDSKOnAir = useCallback((keyerIndex: number, onAir: boolean) => {
+    socket?.emit('atem:setDSKOnAir', { keyerIndex, onAir });
+    setVideoState(prev => {
+      if (!prev || !prev.dsk) return prev;
+      const dsk = prev.dsk.map((d, i) => i === keyerIndex ? { ...d, onAir } : d);
+      return { ...prev, dsk };
+    });
+  }, [socket]);
+
+  const autoDSKTransition = useCallback((keyerIndex: number) => {
+    socket?.emit('atem:autoDSKTransition', { keyerIndex });
+  }, [socket]);
+
   return {
     atemStatus,
     audioState,
     vuState,
     mediaState,
+    videoState,
     atemIP,
     isConnected: atemStatus.status === 'connected',
     connectATEM,
@@ -273,5 +366,14 @@ export function useATEM(socket: Socket | null): UseATEMReturn {
     setMasterGain,
     setMasterBalance,
     setMediaPlayerStill,
+    setPreviewInput,
+    setProgramInput,
+    performAuto,
+    performCut,
+    setTransitionStyle,
+    setTransitionPosition,
+    performFTB,
+    setDSKOnAir,
+    autoDSKTransition,
   };
 }

@@ -9,7 +9,7 @@ atem-controller2026/
 │   │   ├── main.js          # Electron main process
 │   │   ├── preload.js       # Secure IPC bridge
 │   │   ├── tray.js          # System tray
-│   │   ├── atem-manager.js  # atem-connection wrapper
+│   │   ├── atem-manager.js  # atem-connection wrapper + video/audio/media commands
 │   │   ├── socket-bridge.js # Socket.io server + VU throttle
 │   │   ├── config.js        # electron-settings persistence
 │   │   └── renderer/
@@ -17,22 +17,25 @@ atem-controller2026/
 │   ├── assets/
 │   │   ├── icon.ico         # ← ADD YOUR ICON HERE
 │   │   └── icon.png
+│   ├── build.bat            # One-click build script for Windows
 │   └── package.json
 │
 └── client/                  # Next.js PWA
     ├── src/
     │   ├── app/
     │   │   ├── layout.tsx   # PWA meta, theme
-    │   │   ├── page.tsx     # Main page
+    │   │   ├── page.tsx     # Main page + 3-tab nav (VIDEO/AUDIO/MEDIA)
     │   │   └── globals.css
     │   ├── components/
+    │   │   ├── VideoSwitcher.tsx    # PGM/PVW bus, AUTO/CUT/FTB, transition style
     │   │   ├── FairlightMixer.tsx   # Main mixer layout
     │   │   ├── AudioChannel.tsx     # Channel strip + fader
     │   │   ├── VUMeter.tsx          # Stereo level meter
+    │   │   ├── MediaPlayer.tsx      # Media pool + still slots
     │   │   └── ConnectionPanel.tsx  # IP inputs + status
     │   ├── hooks/
     │   │   ├── useSocket.ts  # Socket.io lifecycle
-    │   │   └── useATEM.ts    # ATEM state + commands
+    │   │   └── useATEM.ts    # ATEM state + commands (audio/video/media)
     │   └── lib/
     │       ├── socket.ts     # Singleton socket + localStorage
     │       └── constants.ts  # dB math, MixOption enum
@@ -42,7 +45,49 @@ atem-controller2026/
 
 ---
 
-## 1. Server Setup (Electron)
+## 1. Windows Installation (End User)
+
+> Langkah ini untuk **menjalankan ATEM Controller di PC Windows** sebagai server.
+
+### Prasyarat
+- Windows 10 / 11 (64-bit)
+- [Node.js LTS](https://nodejs.org) — wajib untuk build
+
+### Langkah-langkah
+
+**Step 1 — Install Node.js**
+Download dan install Node.js LTS dari https://nodejs.org.
+Centang opsi *"Add to PATH"* saat instalasi.
+
+**Step 2 — Build installer**
+Copy folder `server/` ke PC Windows, lalu double-click **`build.bat`**.
+Script akan otomatis install dependencies dan generate file `.exe`:
+```
+server\dist\ATEM Controller Setup 1.0.0.exe
+```
+
+**Step 3 — Jalankan installer**
+Double-click `ATEM Controller Setup 1.0.0.exe`.
+
+Jika muncul dialog **"Windows protected your PC"** (SmartScreen):
+1. Klik **"More info"**
+2. Klik **"Run anyway"**
+
+> SmartScreen muncul karena installer belum ditandatangani Code Signing Certificate. Normal untuk distribusi internal.
+
+**Step 4 — Ikuti wizard**
+Klik **Next → Install → Finish**.
+
+**Step 5 — Selesai**
+App **ATEM Controller** akan muncul di:
+- Start Menu → ATEM Controller
+- System Tray (pojok kanan bawah taskbar)
+
+App otomatis berjalan di background dan siap menerima koneksi dari PWA di browser/HP.
+
+---
+
+## 2. Server Build (Developer)
 
 ```bash
 cd server
@@ -54,8 +99,12 @@ npm install
 npm run dev
 ```
 
-### Build .exe (requires Windows or Wine)
+### Build .exe (harus di Windows)
 ```bash
+# Cara 1: pakai build.bat (direkomendasikan)
+build.bat
+
+# Cara 2: manual
 npm run build
 # Output: server/dist/ATEM Controller Setup 1.0.0.exe
 ```
@@ -63,15 +112,16 @@ npm run build
 The NSIS installer will:
 - Install the app to Program Files
 - Create Desktop + Start Menu shortcuts
+- Open port 4000 di Windows Firewall (WebSocket Bridge)
 - Register auto-uninstall
 
 ### Adding your icon
-Place `icon.ico` (256x256) and `icon.png` (512x512) in `server/assets/`.
-Generate from PNG: https://icoconvert.com
+Place `icon.ico` (256x256) dan `icon.png` (512x512) di `server/assets/`.
+Generate dari PNG: https://icoconvert.com
 
 ---
 
-## 2. Client Setup (Next.js PWA)
+## 3. Client Setup (Next.js PWA)
 
 ```bash
 cd client
@@ -92,7 +142,7 @@ Add `output: 'export'` to `next.config.js`, then serve the `out/` folder with an
 
 ---
 
-## 3. Network Configuration
+## 4. Network Configuration
 
 ```
 [ATEM Mini Pro]                [Windows PC]                 [HP/Tablet]
@@ -127,14 +177,16 @@ ATEM sudah dikonfigurasi dengan IP statis **192.168.1.150** (via Ethernet).
 
 ---
 
-## 4. Socket.io Events Reference
+## 5. Socket.io Events Reference
 
 ### Server → Client
 | Event | Payload | Description |
 |-------|---------|-------------|
 | `server:handshake` | `{ atemIP, serverPort, atemStatus }` | Sent on connect |
 | `atem:status` | `{ status, message, ip }` | ATEM connection changes |
-| `atem:audioState` | `{ channels, master }` | Full audio state |
+| `atem:videoState` | `{ programInput, previewInput, transitionStyle, transitionInProgress, transitionPosition, fadeToBlack, inputLabels }` | ME1 video switcher state |
+| `atem:audioState` | `{ channels, master }` | Full audio mixer state |
+| `atem:mediaState` | `{ players, stillPool }` | Media pool state |
 | `atem:vuMeter` | `{ [chIdx]: { left, right, peakLeft, peakRight } }` | Throttled VU (30fps) |
 
 ### Client → Server
@@ -142,14 +194,34 @@ ATEM sudah dikonfigurasi dengan IP statis **192.168.1.150** (via Ethernet).
 |-------|---------|-------------|
 | `atem:connect` | `{ ip }` | Connect ATEM at IP |
 | `atem:disconnect` | — | Disconnect ATEM |
+| **Video Switcher** | | |
+| `atem:setPreviewInput` | `{ source }` | Set ME1 preview bus |
+| `atem:setProgramInput` | `{ source }` | Direct cut to program |
+| `atem:performAuto` | — | Fire AUTO transition |
+| `atem:performCut` | — | Fire CUT transition |
+| `atem:setTransitionStyle` | `{ style }` | 0=Mix, 1=Dip, 2=Wipe |
+| `atem:performFTB` | — | Toggle Fade to Black |
+| **Audio Mixer** | | |
 | `atem:setGain` | `{ index, gain }` | Set channel fader (dB) |
 | `atem:setMixOption` | `{ index, mixOption }` | 0=Off, 1=On, 4=AFV |
 | `atem:setBalance` | `{ index, balance }` | -1.0 to +1.0 |
-| `atem:setMasterGain` | `{ gain }` | Master fader |
+| `atem:setMasterGain` | `{ gain }` | Master fader (dB) |
+| `atem:setMasterBalance` | `{ balance }` | Master pan |
+| **Media Pool** | | |
+| `atem:setMediaPlayerStill` | `{ playerIndex, stillIndex }` | Assign still to MP1/MP2 |
+
+### Video Source IDs (ATEM Mini Pro)
+| Source | ID |
+|--------|----|
+| HDMI 1–4 | 1, 2, 3, 4 |
+| Media Player 1 | 3010 |
+| Media Player 2 | 3020 |
+| Black | 0 |
+| Color Bars | 1000 |
 
 ---
 
-## 5. VU Meter Throttling
+## 6. VU Meter Throttling
 
 ```
 ATEM UDP events (raw, ~50fps)
@@ -171,7 +243,7 @@ ATEM UDP events (raw, ~50fps)
 
 ---
 
-## 6. PWA Installation
+## 7. PWA Installation
 
 ### Android (Chrome)
 1. Open `http://[SERVER_IP]:3000` in Chrome
@@ -185,7 +257,7 @@ ATEM UDP events (raw, ~50fps)
 
 ---
 
-## 7. IP Persistence
+## 8. IP Persistence
 
 | Location | What | Storage |
 |----------|------|---------|

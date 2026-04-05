@@ -18,7 +18,12 @@ export interface UseSocketReturn {
 export function useSocket(): UseSocketReturn {
   const [socketStatus, setSocketStatus] = useState<SocketStatus>('connecting');
   const [serverUrl, setServerUrl] = useState<string>(getStoredServerUrl);
-  const socketRef = useRef<Socket | null>(null);
+  // Use state (not ref) so the socket value triggers re-renders
+  const [socket, setSocket] = useState<Socket | null>(() => {
+    // Initialize immediately on first render (browser only)
+    if (typeof window === 'undefined') return null;
+    return getSocket();
+  });
 
   const attachListeners = useCallback((sock: Socket) => {
     sock.on('connect',          () => setSocketStatus('connected'));
@@ -30,19 +35,18 @@ export function useSocket(): UseSocketReturn {
 
   useEffect(() => {
     const sock = getSocket();
-    socketRef.current = sock;
+    if (sock !== socket) setSocket(sock);
     attachListeners(sock);
-
     if (sock.connected) setSocketStatus('connected');
 
     return () => {
-      // Don't disconnect on unmount — singleton persists
       sock.off('connect');
       sock.off('disconnect');
       sock.off('connect_error');
       sock.off('reconnect');
       sock.off('reconnect_attempt');
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachListeners]);
 
   const connect = useCallback((url: string) => {
@@ -51,12 +55,12 @@ export function useSocket(): UseSocketReturn {
     setServerUrl(trimmed);
     setSocketStatus('connecting');
     const newSock = reconnectSocket(trimmed);
-    socketRef.current = newSock;
+    setSocket(newSock);
     attachListeners(newSock);
   }, [attachListeners]);
 
   return {
-    socket: socketRef.current,
+    socket,
     socketStatus,
     serverUrl,
     connect,
