@@ -9,9 +9,10 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@capacitor/core": "^8.3.0",
     "@ducanh2912/next-pwa": "^10.2.9",
     "next": "14.2.3",
-    "react": "^18.3.1",
+"react": "^18.3.1",
     "react-dom": "^18.3.1",
     "socket.io-client": "^4.7.5"
   },

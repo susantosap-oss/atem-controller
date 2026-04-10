@@ -7,9 +7,9 @@ echo.
 :: Pastikan npm tersedia
 where npm >nul 2>&1 || (echo ERROR: npm tidak ditemukan. Install Node.js terlebih dahulu. & pause & exit /b 1)
 
-:: Install dependencies jika belum ada
-if not exist "node_modules" (
-  echo [1/3] Installing dependencies...
+:: Install dependencies jika belum ada atau electron-builder belum ter-install
+if not exist "node_modules\.bin\electron-builder.cmd" (
+  echo [1/3] Installing dependencies (including devDependencies)...
   call npm install
   if errorlevel 1 (echo GAGAL: npm install & pause & exit /b 1)
 ) else (

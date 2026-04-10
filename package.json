@@ -10,5 +10,13 @@
     "build:server": "cd server && npm run build",
     "build:client": "cd client && npm run build"
   },
-  "workspaces": ["server", "client"]
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "dependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0"
+  }
 }

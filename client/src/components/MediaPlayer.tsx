@@ -1,232 +1,214 @@
 /**
- * MediaPlayer — ATEM Mini Pro Media Pool controller.
- * Shows MP1/MP2 status + 20 still slots. Tap slot to assign to MP1 or MP2.
- * ATEM Mini Pro: 2 media players, 20 still slots, no clip support.
+ * MediaPlayer — ATEM Mini Pro overlay controller.
+ * Workflow: pilih still → load ke MP1 → DSK1 tampil di stream.
+ * Hanya menampilkan slot yang terisi (isUsed), bukan 20 slot kosong.
  */
 'use client';
 
 import React from 'react';
-import { MediaState } from '@/hooks/useATEM';
+import { MediaState, VideoState } from '@/hooks/useATEM';
 
-interface MediaPlayerProps {
-  mediaState: MediaState | null;
-  isConnected: boolean;
+interface Props {
+  mediaState:          MediaState | null;
+  videoState:          VideoState | null;
+  isConnected:         boolean;
   onSetMediaPlayerStill: (playerIndex: number, stillIndex: number) => void;
+  onSetDSKOnAir:       (keyerIndex: number, onAir: boolean) => void;
 }
-
-const STILL_SLOTS = 20;
-
-// ── Media Player status card ───────────────────────────────────
-
-function MPCard({
-  label,
-  playerIndex,
-  mediaState,
-}: {
-  label: string;
-  playerIndex: number;
-  mediaState: MediaState | null;
-}) {
-  const player   = mediaState?.players?.[playerIndex];
-  const slotIdx  = player?.stillIndex ?? -1;
-  const still    = mediaState?.stillPool?.[slotIdx];
-  const fileName = still?.fileName?.replace(/\.[^.]+$/, '') || '—';
-  const slotNum  = still?.isUsed ? `Slot ${slotIdx + 1}` : '';
-
-  return (
-    <div className="flex-1 bg-navy-800/60 border border-navy-700/60 rounded-lg px-3 py-2">
-      <div className="flex items-center gap-2 mb-1">
-        <div className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_5px_#f59e0b]" />
-        <span className="text-[11px] font-bold text-amber-300 uppercase tracking-widest">
-          {label}
-        </span>
-        {slotNum && (
-          <span className="ml-auto text-[10px] text-navy-500">{slotNum}</span>
-        )}
-      </div>
-      <div
-        className="text-xs font-mono text-navy-200 truncate"
-        title={still?.fileName || ''}
-      >
-        {still?.isUsed ? fileName : <span className="text-navy-600 italic">Empty</span>}
-      </div>
-    </div>
-  );
-}
-
-// ── Still slot card ────────────────────────────────────────────
-
-function StillSlotCard({
-  slotIndex,
-  mediaState,
-  onAssign,
-}: {
-  slotIndex: number;
-  mediaState: MediaState | null;
-  onAssign: (playerIndex: number) => void;
-}) {
-  const still     = mediaState?.stillPool?.[slotIndex];
-  const isUsed    = still?.isUsed ?? false;
-  const fileName  = still?.fileName ?? '';
-  const shortName = fileName.replace(/\.[^.]+$/, '') || '—';
-
-  const mp1Active = mediaState?.players?.[0]?.stillIndex === slotIndex &&
-                    mediaState?.players?.[0]?.sourceType === 1;
-  const mp2Active = mediaState?.players?.[1]?.stillIndex === slotIndex &&
-                    mediaState?.players?.[1]?.sourceType === 1;
-
-  const slotLabel = String(slotIndex + 1).padStart(2, '0');
-
-  return (
-    <div
-      className={`flex flex-col rounded-lg border transition-colors
-        ${isUsed
-          ? 'bg-navy-800/80 border-navy-600/60 hover:border-navy-500/80'
-          : 'bg-navy-900/40 border-navy-800/40'
-        }
-        ${mp1Active || mp2Active ? 'ring-1 ring-amber-500/60' : ''}`}
-      style={{ padding: '6px 7px' }}
-    >
-      {/* Slot number + active badges */}
-      <div className="flex items-center gap-1 mb-1">
-        <span className={`text-[10px] font-mono font-bold
-          ${isUsed ? 'text-navy-400' : 'text-navy-700'}`}>
-          {slotLabel}
-        </span>
-        {mp1Active && (
-          <span className="text-[8px] font-bold bg-amber-500 text-black px-1 rounded leading-tight">
-            MP1
-          </span>
-        )}
-        {mp2Active && (
-          <span className="text-[8px] font-bold bg-blue-500 text-white px-1 rounded leading-tight">
-            MP2
-          </span>
-        )}
-      </div>
-
-      {/* Filename */}
-      <div
-        className={`text-[9px] font-mono leading-tight truncate mb-1.5
-          ${isUsed ? 'text-navy-200' : 'text-navy-700 italic'}`}
-        title={fileName}
-        style={{ maxWidth: '100%' }}
-      >
-        {isUsed ? shortName : 'empty'}
-      </div>
-
-      {/* Assign buttons — only for used slots */}
-      <div className="flex gap-1 mt-auto">
-        <button
-          onClick={() => isUsed && onAssign(0)}
-          disabled={!isUsed}
-          className={`flex-1 text-[9px] font-bold py-0.5 rounded transition-colors
-            ${mp1Active
-              ? 'bg-amber-500 text-black'
-              : isUsed
-              ? 'bg-navy-700 text-amber-400 hover:bg-amber-900/60'
-              : 'bg-navy-900 text-navy-700 cursor-not-allowed'}`}
-        >
-          MP1
-        </button>
-        <button
-          onClick={() => isUsed && onAssign(1)}
-          disabled={!isUsed}
-          className={`flex-1 text-[9px] font-bold py-0.5 rounded transition-colors
-            ${mp2Active
-              ? 'bg-blue-500 text-white'
-              : isUsed
-              ? 'bg-navy-700 text-blue-400 hover:bg-blue-900/60'
-              : 'bg-navy-900 text-navy-700 cursor-not-allowed'}`}
-        >
-          MP2
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Main component ─────────────────────────────────────────────
 
 export default function MediaPlayer({
   mediaState,
+  videoState,
   isConnected,
   onSetMediaPlayerStill,
-}: MediaPlayerProps) {
+  onSetDSKOnAir,
+}: Props) {
 
-  const usedCount = mediaState
-    ? Object.values(mediaState.stillPool).filter(s => s.isUsed).length
-    : 0;
+  // Slot yang benar-benar terisi
+  const usedSlots = Object.entries(mediaState?.stillPool ?? {})
+    .filter(([, s]) => s.isUsed)
+    .map(([idx, s]) => ({ index: Number(idx), fileName: s.fileName ?? '' }))
+    .sort((a, b) => a.index - b.index);
+
+  // MP1 state
+  const mp1Player   = mediaState?.players?.[0];
+  const mp1StillIdx = mp1Player?.stillIndex ?? -1;
+  const mp1Still    = mediaState?.stillPool?.[mp1StillIdx];
+  const mp1Name     = mp1Still?.fileName?.replace(/\.[^.]+$/, '') ?? '—';
+
+  // DSK1 state (index 0)
+  const dsk1OnAir  = videoState?.dsk?.[0]?.onAir      ?? false;
+  const dsk1InTrans = videoState?.dsk?.[0]?.inTransition ?? false;
+
+  const disabled = !isConnected;
+
+  const handleStillTap = (slotIndex: number) => {
+    if (disabled) return;
+    // Load ke MP1
+    onSetMediaPlayerStill(0, slotIndex);
+    // Jika DSK1 sudah ON, biarkan tetap ON (still baru otomatis tampil)
+    // Jika DSK1 OFF, nyalakan otomatis
+    if (!dsk1OnAir) {
+      onSetDSKOnAir(0, true);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full bg-navy-950">
+    <div className="flex flex-col h-full bg-navy-950 select-none relative">
 
-      {/* Header */}
-      <div className="flex items-center px-4 py-2 bg-navy-900
-                      border-b border-navy-700/70 shrink-0">
+      {/* ── Disconnected overlay ─────────────────────────── */}
+      {!isConnected && (
+        <div className="absolute inset-0 z-10 bg-navy-950/60 backdrop-blur-[1px]
+                        flex items-center justify-center pointer-events-none">
+          <span className="text-[10px] text-navy-500 uppercase tracking-widest font-semibold">
+            Tidak terhubung ke ATEM
+          </span>
+        </div>
+      )}
+
+      {/* ── Header ──────────────────────────────────────── */}
+      <div className="flex items-center px-4 py-2 bg-navy-900 border-b border-navy-700/70 shrink-0">
         <div className="flex items-center gap-2">
-          <div className="flex gap-0.5">
+          <div className="flex gap-[2px]">
             {[0,1,2].map(i => (
               <div key={i} className="w-1 h-5 rounded-sm bg-amber-600 opacity-80" />
             ))}
           </div>
-          <span className="text-sm font-bold tracking-wide text-navy-100">
-            MEDIA POOL
-          </span>
+          <span className="text-sm font-bold tracking-wide text-navy-100">MEDIA POOL</span>
         </div>
         <div className="ml-auto text-[11px] text-navy-500">
-          {mediaState ? `${usedCount} / ${STILL_SLOTS} slots used` : 'No data'}
+          {usedSlots.length} overlay tersedia
         </div>
       </div>
 
-      {/* ── Always show grid — greyed when disconnected ────── */}
-      <div className={`flex flex-col flex-1 overflow-hidden relative
-                       ${!isConnected ? 'pointer-events-none' : ''}`}>
+      {/* ── Status bar: MP1 aktif + DSK1 toggle ─────────── */}
+      <div className="shrink-0 flex items-center gap-3 px-4 py-2
+                      bg-navy-900/60 border-b border-navy-800/60">
 
-        {/* Grey overlay when disconnected */}
-        {!isConnected && (
-          <div className="absolute inset-0 z-10 bg-navy-950/60 backdrop-blur-[1px]
-                          flex items-center justify-center pointer-events-none">
-            <span className="text-[10px] text-navy-500 uppercase tracking-widest font-semibold">
-              Tidak terhubung ke ATEM
+        {/* MP1 status */}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className={`w-2 h-2 rounded-full shrink-0 ${
+            dsk1OnAir ? 'bg-red-500 shadow-[0_0_6px_#ef4444]' : 'bg-navy-600'
+          }`} />
+          <span className="text-[10px] text-navy-500 uppercase tracking-widest shrink-0">MP1</span>
+          <span className="text-[11px] font-mono text-navy-200 truncate">{mp1Name}</span>
+        </div>
+
+        {/* DSK1 toggle button */}
+        <button
+          disabled={disabled}
+          onClick={() => onSetDSKOnAir(0, !dsk1OnAir)}
+          className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[11px] font-bold
+            tracking-widest uppercase transition-all shrink-0
+            ${dsk1OnAir
+              ? 'bg-red-700 border border-red-500 text-white shadow-lg shadow-red-900/40'
+              : dsk1InTrans
+                ? 'bg-amber-700/60 border border-amber-500/60 text-amber-300 animate-pulse'
+                : 'bg-navy-800 border border-navy-700 text-navy-400 hover:border-navy-500 hover:text-navy-200'
+            }
+            ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer active:scale-95'}
+          `}
+        >
+          <span className={`text-[9px] ${dsk1OnAir ? 'text-red-300' : 'text-navy-600'}`}>
+            {dsk1OnAir ? '●' : '○'}
+          </span>
+          DSK1 {dsk1OnAir ? 'ON' : 'OFF'}
+        </button>
+      </div>
+
+      {/* ── Still grid — hanya slot terisi ──────────────── */}
+      <div className={`flex-1 overflow-y-auto px-3 py-3
+                       ${disabled ? 'pointer-events-none' : ''}`}>
+
+        {usedSlots.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2">
+            <span className="text-[11px] text-navy-600 uppercase tracking-widest">
+              Belum ada media di pool
+            </span>
+            <span className="text-[10px] text-navy-700">
+              Upload via ATEM Software Control
             </span>
           </div>
+        ) : (
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+            {usedSlots.map(({ index, fileName }) => {
+              const shortName = fileName.replace(/\.[^.]+$/, '') || `Slot ${index + 1}`;
+              const isInMp1  = mp1Player?.sourceType === 1 && mp1StillIdx === index;
+              const isLive   = isInMp1 && dsk1OnAir;
+
+              return (
+                <button
+                  key={index}
+                  onClick={() => handleStillTap(index)}
+                  disabled={disabled}
+                  className={`flex flex-col items-start gap-2 p-3 rounded-xl border text-left
+                    transition-all active:scale-95
+                    ${isLive
+                      ? 'bg-red-900/40 border-red-600/60 shadow-lg shadow-red-900/30'
+                      : isInMp1
+                        ? 'bg-amber-900/30 border-amber-600/50'
+                        : 'bg-navy-800/80 border-navy-700/60 hover:border-navy-500/80 hover:bg-navy-700/60'
+                    }
+                    ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
+                  `}
+                >
+                  {/* Preview placeholder — garis seperti slide thumbnail */}
+                  <div className={`w-full rounded-md overflow-hidden border
+                    ${isLive ? 'border-red-600/40' : isInMp1 ? 'border-amber-600/40' : 'border-navy-700/40'}`}
+                    style={{ aspectRatio: '16/9', background: '#0a1628' }}
+                  >
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-1 opacity-40">
+                      {[0,1,2].map(i => (
+                        <div key={i} className={`rounded-full h-px ${i === 1 ? 'w-8' : 'w-5'} bg-navy-400`} />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Nama file */}
+                  <span className={`text-[11px] font-mono font-semibold leading-tight truncate w-full
+                    ${isLive ? 'text-red-200' : isInMp1 ? 'text-amber-200' : 'text-navy-200'}`}
+                    title={fileName}
+                  >
+                    {shortName}
+                  </span>
+
+                  {/* Badge status */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-navy-600 font-mono">
+                      #{String(index + 1).padStart(2, '0')}
+                    </span>
+                    {isLive && (
+                      <span className="text-[8px] font-bold bg-red-600 text-white px-1.5 py-px rounded
+                                       tracking-widest animate-pulse">
+                        ● LIVE
+                      </span>
+                    )}
+                    {isInMp1 && !isLive && (
+                      <span className="text-[8px] font-bold bg-amber-600 text-black px-1.5 py-px rounded
+                                       tracking-widest">
+                        MP1
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         )}
-
-        {/* MP1 / MP2 status row */}
-        <div className="flex gap-2 px-3 py-2 shrink-0 border-b border-navy-800/60">
-          <MPCard label="Media Player 1" playerIndex={0} mediaState={mediaState} />
-          <MPCard label="Media Player 2" playerIndex={1} mediaState={mediaState} />
-        </div>
-
-        {/* Still pool grid — scrollable */}
-        <div className="flex-1 overflow-y-auto px-3 py-2">
-          <div className="text-[10px] text-navy-600 uppercase tracking-widest mb-2 px-0.5">
-            Still Pool — tap a slot to assign
-          </div>
-          <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            {Array.from({ length: STILL_SLOTS }, (_, i) => (
-              <StillSlotCard
-                key={i}
-                slotIndex={i}
-                mediaState={mediaState}
-                onAssign={(playerIndex) => onSetMediaPlayerStill(playerIndex, i)}
-              />
-            ))}
-          </div>
-        </div>
       </div>
 
-      {/* Bottom bar */}
-      <div className="flex items-center px-4 py-1.5 bg-navy-950
-                      border-t border-navy-800/60 shrink-0">
-        <span className="text-[10px] text-navy-600">
-          ATEM MINI PRO — 2 Media Players · 20 Still Slots
+      {/* ── Bottom hint ──────────────────────────────────── */}
+      <div className="shrink-0 flex items-center justify-between px-4 py-1.5
+                      bg-navy-950 border-t border-navy-800/60">
+        <span className="text-[10px] text-navy-700">
+          Tap still → load MP1 + DSK1 ON otomatis
         </span>
-        <div className="ml-auto text-[10px] text-navy-600">
-          Tap MP1 / MP2 to assign · active slot highlighted
-        </div>
+        <span className={`text-[10px] font-semibold uppercase tracking-widest
+          ${dsk1OnAir ? 'text-red-500' : 'text-navy-700'}`}>
+          {dsk1OnAir ? '● Overlay ON' : '○ Overlay OFF'}
+        </span>
       </div>
+
     </div>
   );
 }

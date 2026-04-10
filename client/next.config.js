@@ -35,7 +35,11 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 const nextConfig = {
   reactStrictMode: true,
   // Standalone mode: self-contained server.js — required for Docker / Cloud Run
-  output: 'standalone',
+  output: 'export',
+  // Penting: Next.js export tidak mendukung Image Optimization bawaan secara default di APK
+  images: {
+    unoptimized: true,
+ },
 };
 
 module.exports = withPWA(nextConfig);

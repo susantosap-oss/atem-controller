@@ -1,0 +1,10 @@
+{
+  "name": "atem-embedded-server",
+  "version": "1.0.0",
+  "description": "Embedded Node.js server — runs on-device, connects to ATEM via UDP",
+  "main": "main.js",
+  "dependencies": {
+    "atem-connection": "^4.0.0",
+    "socket.io": "^4.7.5"
+  }
+}

@@ -1,32 +1,35 @@
 /**
- * Socket singleton — one persistent connection shared across the app.
- * Server URL stored in localStorage with fallback.
+ * Socket singleton — optimized for Android (Capacitor) & Web PWA.
+ * Persistent connection shared across the app.
  */
 import { io, Socket } from 'socket.io-client';
+import { Capacitor } from '@capacitor/core'; // Tambahkan import ini
 
 /**
- * Resolve WebSocket server URL berdasarkan konteks akses:
- *
- *  1. LAN IP (192.168.x / 10.x / 172.16-31.x)
- *     → HP buka PWA via IP PC = server ada di PC yang sama → http://[ip]:4000
- *
- *  2. localhost / 127.0.0.1
- *     → Dev mode di PC itu sendiri → http://localhost:4000
- *
- *  3. Domain eksternal (Cloud Run, dll)
- *     → '' kosong → ConnectionPanel tampilkan placeholder, user isi manual
- *        (URL disimpan ke localStorage setelah user connect)
+ * Resolve WebSocket server URL:
+ * 1. Android APK (Capacitor): Prioritaskan input user (localStorage).
+ * 2. Web Browser: Deteksi otomatis IP LAN.
  */
 function resolveDefaultServerUrl(): string {
   if (typeof window === 'undefined') return 'http://localhost:4000'; // SSR guard
+
+  // KHUSUS ANDROID/IOS (Native)
+  // Embedded Node.js server berjalan di dalam APK — selalu pakai localhost:4000
+  const isNative = Capacitor.isNativePlatform();
+  if (isNative) {
+    return 'http://localhost:4000';
+  }
+
+  // KHUSUS WEB BROWSER (PWA)
   const host = window.location.hostname;
   if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) {
-    return `http://${host}:4000`;       // LAN: PC IP otomatis
+    return `http://${host}:4000`;       // Otomatis deteksi IP PC via LAN
   }
   if (host === 'localhost' || host === '127.0.0.1') {
-    return 'http://localhost:4000';     // Dev
+    return 'http://localhost:4000';     // Dev mode di PC itu sendiri
   }
-  return '';  // Cloud Run / external → user harus isi di ConnectionPanel
+
+  return ''; // Cloud Run atau akses eksternal -> Munculkan input manual
 }
 
 export const DEFAULT_SERVER_URL: string = resolveDefaultServerUrl();
@@ -60,14 +63,19 @@ export function setStoredAtemIP(ip: string) {
 export function getSocket(): Socket {
   if (!socket) {
     const url = getStoredServerUrl();
-    socket = io(url, {
-      transports: ['websocket', 'polling'],
+
+    if (!url) {
+      console.warn('Socket URL is empty. Waiting for user input.');
+    }
+
+    socket = io(url || 'http://placeholder.local', {
+      transports: ['polling', 'websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: Infinity,
-      timeout: 10000,
-      autoConnect: true,
+      timeout: 15000, // Lebih lama — beri waktu Node.js embedded startup
+      autoConnect: !!url,
     });
   }
   return socket;

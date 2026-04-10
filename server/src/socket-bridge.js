@@ -6,6 +6,7 @@
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const atemManager = require('./atem-manager');
+const m32Manager  = require('./m32-manager');
 const Config = require('./config');
 
 const VU_THROTTLE_MS = 33;   // ~30fps
@@ -64,6 +65,18 @@ function start(port) {
     scheduleVuFlush();
   });
 
+  // ── M32 events → broadcast ─────────────────────────────────
+  m32Manager.on('status',       (d) => io.emit('m32:status',       d));
+  m32Manager.on('channelNames', (d) => io.emit('m32:channelNames', d));
+  m32Manager.on('busNames',     (d) => io.emit('m32:busNames',     d));
+  m32Manager.on('busConfig',    (d) => io.emit('m32:busConfig',    d));
+  m32Manager.on('sendLevel',    (d) => io.emit('m32:sendLevel',    d));
+  m32Manager.on('sendOn',       (d) => io.emit('m32:sendOn',       d));
+  m32Manager.on('busLevel',     (d) => io.emit('m32:busLevel',     d));
+  m32Manager.on('busOn',        (d) => io.emit('m32:busOn',        d));
+  m32Manager.on('inputMeters',  (d) => io.emit('m32:inputMeters',  d));
+  m32Manager.on('busMeters',    (d) => io.emit('m32:busMeters',    d));
+
   // ── Client connection ─────────────────────────────────────
 
   io.on('connection', async (socket) => {
@@ -78,7 +91,25 @@ function start(port) {
         status: atemManager.status,
         ip: atemManager.ip,
       },
+      m32Status: { status: m32Manager.status, ip: m32Manager._ip },
     });
+
+    // Send current M32 state if connected
+    if (m32Manager.status === 'connected') {
+      if (Object.keys(m32Manager.channelNames).length)
+        socket.emit('m32:channelNames', m32Manager.channelNames);
+      if (Object.keys(m32Manager.busNames).length)
+        socket.emit('m32:busNames', m32Manager.busNames);
+      if (Object.keys(m32Manager.busConfig).length)
+        socket.emit('m32:busConfig', m32Manager.busConfig);
+      if (Object.keys(m32Manager.busLevels).length)
+        for (const [bus, data] of Object.entries(m32Manager.busLevels))
+          socket.emit('m32:busLevel', { bus, ...data });
+      for (const [key, data] of Object.entries(m32Manager.sendLevels)) {
+        const [ch, bus] = key.split(':');
+        socket.emit('m32:sendLevel', { ch, bus, ...data });
+      }
+    }
 
     // Send current audio + media + video state if connected
     if (atemManager.status === 'connected' && atemManager.state) {
@@ -171,6 +202,37 @@ function start(port) {
     socket.on('server:setConfig', async (cfg) => {
       await Config.setAll(cfg);
       io.emit('server:config', cfg);
+    });
+
+    // ── M32 commands ────────────────────────────────────────
+    socket.on('m32:connect', ({ ip }) => {
+      console.log(`[M32] Client requests connect: ${ip}`);
+      m32Manager.connect(ip);
+    });
+
+    socket.on('m32:disconnect', () => {
+      console.log('[M32] Client requests disconnect');
+      m32Manager.disconnect();
+    });
+
+    socket.on('m32:setChannelSendLevel', ({ ch, bus, level }) => {
+      m32Manager.setChannelSendLevel(ch, bus, level);
+    });
+
+    socket.on('m32:setChannelSendOn', ({ ch, bus, on }) => {
+      m32Manager.setChannelSendOn(ch, bus, on);
+    });
+
+    socket.on('m32:setBusLevel', ({ bus, level }) => {
+      m32Manager.setBusLevel(bus, level);
+    });
+
+    socket.on('m32:setBusOn', ({ bus, on }) => {
+      m32Manager.setBusOn(bus, on);
+    });
+
+    socket.on('m32:queryBus', ({ bus }) => {
+      m32Manager.queryBus(bus);
     });
 
     socket.on('disconnect', () => {

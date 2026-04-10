@@ -34,6 +34,27 @@ body {
   -webkit-user-select: none;
 }
 
-/* PWA safe area insets */
-.safe-top    { padding-top: env(safe-area-inset-top); }
-.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+/* Force landscape via CSS hint (PWA fullscreen) */
+@media screen and (orientation: portrait) {
+  html {
+    transform: rotate(90deg);
+    transform-origin: left top;
+    width: 100vh;
+    height: 100vw;
+    overflow-x: hidden;
+    position: absolute;
+    top: 100%;
+    left: 0;
+  }
+}
+
+/* Safe area insets — Capacitor Android/iOS */
+:root {
+  --sat: env(safe-area-inset-top,    0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left,   0px);
+  --sar: env(safe-area-inset-right,  0px);
+}
+
+.safe-top    { padding-top:    var(--sat); }
+.safe-bottom { padding-bottom: var(--sab); }

@@ -6,13 +6,16 @@
 
 import React, { useEffect, useState } from 'react';
 import FairlightMixer  from '@/components/FairlightMixer';
+import M32Mixer        from '@/components/M32Mixer';
 import MediaPlayer     from '@/components/MediaPlayer';
 import VideoSwitcher   from '@/components/VideoSwitcher';
 import ConnectionPanel from '@/components/ConnectionPanel';
 import { useSocket } from '@/hooks/useSocket';
 import { useATEM }   from '@/hooks/useATEM';
+import { useM32 }    from '@/hooks/useM32';
 
-type ActiveTab = 'video' | 'audio' | 'media';
+type ActiveTab    = 'video' | 'audio' | 'media';
+type AudioSubTab  = 'fairlight' | 'm32';
 
 export default function HomePage() {
   const { socket, socketStatus, serverUrl, connect: connectServer } = useSocket();
@@ -43,7 +46,26 @@ export default function HomePage() {
     autoDSKTransition,
   } = useATEM(socket);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('video');
+  const {
+    m32Status,
+    channelNames,
+    busNames,
+    busConfig,
+    sendLevels,
+    busLevels,
+    inputVu,
+    busVu,
+    connectM32,
+    disconnectM32,
+    setChannelSendLevel,
+    setChannelSendOn,
+    setBusLevel,
+    setBusOn,
+    queryBus,
+  } = useM32(socket);
+
+  const [activeTab,   setActiveTab]   = useState<ActiveTab>('video');
+  const [audioSubTab, setAudioSubTab] = useState<AudioSubTab>('fairlight');
 
   // Prevent body scroll on mobile PWA
   useEffect(() => {
@@ -51,10 +73,18 @@ export default function HomePage() {
     return () => { document.body.style.overflow = ''; };
   }, []);
 
+  // Lock orientation to landscape on supported browsers / PWA
+  useEffect(() => {
+    const orient = screen?.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    if (orient?.lock) {
+      orient.lock('landscape').catch(() => { /* silently ignore — desktop / unsupported */ });
+    }
+  }, []);
+
   const isConnected = atemStatus.status === 'connected';
 
   return (
-    <main className="fixed inset-0 flex flex-col bg-navy-950">
+    <main className="fixed inset-0 flex flex-col bg-navy-950 safe-top">
 
       {/* Floating connection panel */}
       <ConnectionPanel
@@ -85,28 +115,71 @@ export default function HomePage() {
           />
         )}
         {activeTab === 'audio' && (
-          <FairlightMixer
-            audioState={audioState}
-            vuState={vuState}
-            isConnected={isConnected}
-            onGainChange={setChannelGain}
-            onMixOptionChange={setChannelMixOption}
-            onBalanceChange={setChannelBalance}
-            onMasterGainChange={setMasterGain}
-            onMasterBalanceChange={setMasterBalance}
-          />
+          <div className="flex flex-col h-full">
+            {/* Audio sub-tab bar */}
+            <div className="flex shrink-0 bg-navy-900 border-b border-navy-700/60">
+              <AudioSubTabButton
+                label="FAIRLIGHT"
+                active={audioSubTab === 'fairlight'}
+                onClick={() => setAudioSubTab('fairlight')}
+              />
+              <AudioSubTabButton
+                label="MIDAS M32R LIVE"
+                active={audioSubTab === 'm32'}
+                onClick={() => setAudioSubTab('m32')}
+                accent="purple"
+              />
+            </div>
+
+            {/* Sub-tab content */}
+            <div className="flex-1 overflow-hidden">
+              {audioSubTab === 'fairlight' && (
+                <FairlightMixer
+                  audioState={audioState}
+                  vuState={vuState}
+                  isConnected={isConnected}
+                  onGainChange={setChannelGain}
+                  onMixOptionChange={setChannelMixOption}
+                  onBalanceChange={setChannelBalance}
+                  onMasterGainChange={setMasterGain}
+                  onMasterBalanceChange={setMasterBalance}
+                />
+              )}
+              {audioSubTab === 'm32' && (
+                <M32Mixer
+                  m32Status={m32Status}
+                  channelNames={channelNames}
+                  busNames={busNames}
+                  busConfig={busConfig}
+                  sendLevels={sendLevels}
+                  busLevels={busLevels}
+                  inputVu={inputVu}
+                  busVu={busVu}
+                  onConnect={connectM32}
+                  onDisconnect={disconnectM32}
+                  onChannelSendLevel={setChannelSendLevel}
+                  onChannelSendOn={setChannelSendOn}
+                  onBusLevel={setBusLevel}
+                  onBusOn={setBusOn}
+                  onQueryBus={queryBus}
+                />
+              )}
+            </div>
+          </div>
         )}
         {activeTab === 'media' && (
           <MediaPlayer
             mediaState={mediaState}
+            videoState={videoState}
             isConnected={isConnected}
             onSetMediaPlayerStill={setMediaPlayerStill}
+            onSetDSKOnAir={setDSKOnAir}
           />
         )}
       </div>
 
       {/* Tab bar */}
-      <div className="flex shrink-0 border-t border-navy-700/60 bg-navy-950">
+      <div className="flex shrink-0 border-t border-navy-700/60 bg-navy-950 safe-bottom">
         <TabButton
           label="VIDEO"
           icon={<VideoIcon />}
@@ -128,6 +201,31 @@ export default function HomePage() {
         />
       </div>
     </main>
+  );
+}
+
+// ── Audio sub-tab button ────────────────────────────────────
+
+function AudioSubTabButton({
+  label, active, onClick, accent = 'blue',
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  accent?: 'blue' | 'purple';
+}) {
+  const activeColor = accent === 'purple'
+    ? 'text-purple-400 border-b-2 border-purple-500 bg-navy-800/60'
+    : 'text-blue-400 border-b-2 border-blue-500 bg-navy-800/60';
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 py-1.5 text-[10px] font-bold tracking-widest uppercase
+        transition-colors border-b-2
+        ${active ? activeColor : 'text-navy-500 border-transparent hover:text-navy-300'}`}
+    >
+      {label}
+    </button>
   );
 }
 

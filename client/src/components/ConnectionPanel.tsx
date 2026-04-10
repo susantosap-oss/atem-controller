@@ -1,12 +1,12 @@
 /**
- * ConnectionPanel — dual IP inputs: Server URL + ATEM IP.
- * Server URL: saved to localStorage, reconnects Socket.io.
- * ATEM IP: sent to server via socket → server calls atem.connect(ip).
- * Shows handshake status badge.
+ * ConnectionPanel — dual IP inputs: Server URL (web only) + ATEM IP.
+ * Di APK (Capacitor native): Server URL disembunyikan, embedded Node.js auto-connect localhost:4000.
+ * Di Web PWA: Server URL + ATEM IP keduanya ditampilkan.
  */
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { SocketStatus } from '@/hooks/useSocket';
 import { ATEMStatus } from '@/hooks/useATEM';
 import { getStoredServerUrl, setStoredServerUrl } from '@/lib/socket';
@@ -46,6 +46,8 @@ export default function ConnectionPanel({
   onConnectATEM,
   onDisconnectATEM,
 }: ConnectionPanelProps) {
+  const isNative = Capacitor.isNativePlatform();
+
   const [serverInput, setServerInput] = useState(serverUrl);
   const [atemInput,   setAtemInput]   = useState(atemIP);
   const [collapsed,   setCollapsed]   = useState(false);
@@ -70,11 +72,15 @@ export default function ConnectionPanel({
 
   if (collapsed) {
     return (
-      <div className="fixed top-2 right-2 z-50 flex items-center gap-2
+      <div className="fixed top-[max(env(safe-area-inset-top),0.5rem)] right-2 z-50 flex items-center gap-2
                       bg-navy-900/90 backdrop-blur border border-navy-700/60
                       rounded-full px-3 py-1.5 shadow-xl">
-        <StatusBadge status={socketStatus}   label="WS" />
-        <span className="text-navy-600 text-xs">|</span>
+        {!isNative && (
+          <>
+            <StatusBadge status={socketStatus} label="WS" />
+            <span className="text-navy-600 text-xs">|</span>
+          </>
+        )}
         <StatusBadge status={atemStatus.status} label="ATEM" />
         <button
           onClick={() => setCollapsed(false)}
@@ -88,14 +94,14 @@ export default function ConnectionPanel({
   }
 
   return (
-    <div className="fixed top-2 right-2 z-50 w-72
+    <div className="fixed top-[max(env(safe-area-inset-top),0.5rem)] right-2 z-50 w-72
                     bg-navy-900/95 backdrop-blur border border-navy-700/60
                     rounded-xl shadow-2xl overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2
                       bg-navy-950/60 border-b border-navy-700/50">
         <span className="text-xs font-semibold text-navy-300 uppercase tracking-wider">
-          Connection
+          {isNative ? 'ATEM Connection' : 'Connection'}
         </span>
         <button
           onClick={() => setCollapsed(true)}
@@ -108,46 +114,59 @@ export default function ConnectionPanel({
 
       <div className="p-3 flex flex-col gap-3">
 
-        {/* ── Server (Socket.io) ───────────────────────── */}
-        <div className="flex flex-col gap-1.5">
+        {/* ── Server URL — hanya tampil di Web PWA, bukan APK ── */}
+        {!isNative && (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium text-navy-400 uppercase tracking-wide">
+                  Server URL
+                </span>
+                <StatusBadge status={socketStatus} label={socketStatus} />
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={serverInput}
+                  onChange={e => setServerInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleServerConnect()}
+                  placeholder="http://192.168.1.100:4000"
+                  className="flex-1 bg-navy-950 border border-navy-700/60 rounded-lg
+                             text-navy-100 text-xs font-mono px-2.5 py-1.5
+                             placeholder:text-navy-600 focus:outline-none
+                             focus:border-blue-600 transition-colors"
+                />
+                <button
+                  onClick={handleServerConnect}
+                  disabled={socketStatus === 'connected' && serverInput === serverUrl}
+                  className="px-2.5 py-1.5 text-xs font-semibold rounded-lg
+                             bg-blue-700 hover:bg-blue-600 text-white
+                             disabled:opacity-40 disabled:cursor-not-allowed
+                             transition-colors"
+                >
+                  {socketStatus === 'connected' ? 'Re' : ''}Connect
+                </button>
+              </div>
+              {socketStatus === 'error' && (
+                <p className="text-[10px] text-red-400">
+                  Cannot reach server. Check IP and port.
+                </p>
+              )}
+            </div>
+
+            <div className="border-t border-navy-700/40" />
+          </>
+        )}
+
+        {/* ── Embedded server status — hanya APK ── */}
+        {isNative && socketStatus !== 'connected' && (
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-medium text-navy-400 uppercase tracking-wide">
-              Server URL
+              Local Server
             </span>
             <StatusBadge status={socketStatus} label={socketStatus} />
           </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={serverInput}
-              onChange={e => setServerInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleServerConnect()}
-              placeholder="http://192.168.1.100:4000"
-              className="flex-1 bg-navy-950 border border-navy-700/60 rounded-lg
-                         text-navy-100 text-xs font-mono px-2.5 py-1.5
-                         placeholder:text-navy-600 focus:outline-none
-                         focus:border-blue-600 transition-colors"
-            />
-            <button
-              onClick={handleServerConnect}
-              disabled={socketStatus === 'connected' && serverInput === serverUrl}
-              className="px-2.5 py-1.5 text-xs font-semibold rounded-lg
-                         bg-blue-700 hover:bg-blue-600 text-white
-                         disabled:opacity-40 disabled:cursor-not-allowed
-                         transition-colors"
-            >
-              {socketStatus === 'connected' ? 'Re' : ''}Connect
-            </button>
-          </div>
-          {socketStatus === 'error' && (
-            <p className="text-[10px] text-red-400">
-              Cannot reach server. Check IP and port.
-            </p>
-          )}
-        </div>
-
-        {/* Divider */}
-        <div className="border-t border-navy-700/40" />
+        )}
 
         {/* ── ATEM IP ──────────────────────────────────── */}
         <div className="flex flex-col gap-1.5">
@@ -219,8 +238,11 @@ export default function ConnectionPanel({
           {atemStatus.status === 'connected'
             ? `Handshake OK — ${atemStatus.ip || atemInput}`
             : socketStatus === 'connected'
-            ? 'Server connected, ATEM not linked'
-            : 'Server unreachable'}
+            ? 'Server ready, ATEM not linked'
+            : isNative
+            ? 'Starting embedded server...'
+            : 'Server unreachable'
+          }
         </div>
       </div>
     </div>

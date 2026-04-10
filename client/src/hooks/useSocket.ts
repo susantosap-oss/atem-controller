@@ -1,9 +1,11 @@
 /**
  * useSocket — manages Socket.io connection lifecycle.
- * Exposes connection state and reconnect function.
+ * Di APK (native): langsung return 'connected' — plugin native yang handles komunikasi.
+ * Di Web: socket.io seperti biasa.
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
+import { Capacitor } from '@capacitor/core';
 import { getSocket, reconnectSocket, getStoredServerUrl } from '@/lib/socket';
 
 export type SocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -16,11 +18,25 @@ export interface UseSocketReturn {
 }
 
 export function useSocket(): UseSocketReturn {
+  // Di native: plugin Java yang handle — socket.io tidak dipakai
+  if (Capacitor.isNativePlatform()) {
+    return {
+      socket: null,
+      socketStatus: 'connected', // Plugin native selalu "siap"
+      serverUrl: 'native',
+      connect: () => {},
+    };
+  }
+
+  // Web path — socket.io seperti biasa
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  return useSocketWeb();
+}
+
+function useSocketWeb(): UseSocketReturn {
   const [socketStatus, setSocketStatus] = useState<SocketStatus>('connecting');
   const [serverUrl, setServerUrl] = useState<string>(getStoredServerUrl);
-  // Use state (not ref) so the socket value triggers re-renders
   const [socket, setSocket] = useState<Socket | null>(() => {
-    // Initialize immediately on first render (browser only)
     if (typeof window === 'undefined') return null;
     return getSocket();
   });
@@ -59,10 +75,5 @@ export function useSocket(): UseSocketReturn {
     attachListeners(newSock);
   }, [attachListeners]);
 
-  return {
-    socket,
-    socketStatus,
-    serverUrl,
-    connect,
-  };
+  return { socket, socketStatus, serverUrl, connect };
 }
