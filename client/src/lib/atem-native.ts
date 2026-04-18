@@ -18,6 +18,7 @@ export interface AtemPlugin {
   performAuto(): Promise<void>;
   performCut(): Promise<void>;
   setTransitionStyle(options: { style: number }): Promise<void>;
+  setTransitionPosition(options: { position: number }): Promise<void>;
   performFTB(): Promise<void>;
   setDSKOnAir(options: { keyerIndex: number; onAir: boolean }): Promise<void>;
   autoDSKTransition(options: { keyerIndex: number }): Promise<void>;

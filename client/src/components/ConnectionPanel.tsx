@@ -50,7 +50,8 @@ export default function ConnectionPanel({
 
   const [serverInput, setServerInput] = useState(serverUrl);
   const [atemInput,   setAtemInput]   = useState(atemIP);
-  const [collapsed,   setCollapsed]   = useState(false);
+  // On APK: start collapsed (badge only) so it doesn't overlap content
+  const [collapsed,   setCollapsed]   = useState(isNative);
 
   // Sync input field when server handshake delivers a saved ATEM IP
   useEffect(() => {

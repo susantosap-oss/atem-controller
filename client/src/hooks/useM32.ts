@@ -1,14 +1,16 @@
 /**
- * useM32 — Midas M32R state + commands via Socket.io.
- * Tracks channel names, bus names/config, send levels, bus levels,
- * and VU meters (input + bus) with RAF smoothing (α = 0.3).
+ * useM32 — Midas M32R state + commands.
+ * - Native Android (APK): pakai M32Plugin via Capacitor (OSC UDP langsung ke M32)
+ * - Web/PWA: pakai Socket.io ke server PC
  *
  * M32 level convention: raw 0.0–1.0 (0.75 = unity / 0 dB).
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Socket } from 'socket.io-client';
 import { LevelData } from '@/lib/constants';
+import { M32Native } from '@/lib/m32-native';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -44,6 +46,8 @@ const VU_SMOOTH = 0.3;
 const DEFAULT_CHANNEL_NAMES: Record<string, string> = {};
 for (let i = 1; i <= 32; i++)
   DEFAULT_CHANNEL_NAMES[String(i).padStart(2, '0')] = `CH ${String(i).padStart(2, ' ')}`;
+
+const IS_NATIVE = Capacitor.isNativePlatform();
 
 // ── Hook ──────────────────────────────────────────────────────
 
@@ -110,9 +114,48 @@ export function useM32(socket: Socket | null) {
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  // ── Socket events ─────────────────────────────────────────
+  // ── Native path (Android APK — direct UDP OSC) ──────────────
   useEffect(() => {
-    if (!socket) return;
+    if (!IS_NATIVE) return;
+
+    const listeners: Array<{ remove: () => void }> = [];
+
+    const addL = async (event: string, cb: (d: any) => void) => {
+      const h = await M32Native.addListener(event, cb);
+      listeners.push(h);
+    };
+
+    (async () => {
+      await addL('m32:status', (d: M32Status) => setM32Status(d));
+      await addL('m32:channelNames', (d: Record<string, string>) => setChannelNames(d));
+      await addL('m32:busNames',     (d: Record<string, string>) => setBusNames(d));
+      await addL('m32:busConfig',    (d: Record<string, { mono: boolean }>) => setBusConfig(d));
+      await addL('m32:sendLevel', (d: { ch: string; bus: string; level: number; on: boolean }) => {
+        setSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+      });
+      await addL('m32:sendOn', (d: { ch: string; bus: string; level: number; on: boolean }) => {
+        setSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+      });
+      await addL('m32:busLevel', (d: { bus: string; level: number; on: boolean }) => {
+        setBusLevels(prev => ({ ...prev, [d.bus]: { level: d.level, on: d.on } }));
+      });
+      await addL('m32:busOn', (d: { bus: string; level: number; on: boolean }) => {
+        setBusLevels(prev => ({ ...prev, [d.bus]: { level: d.level, on: d.on } }));
+      });
+      await addL('m32:inputMeters', (d: Record<string, { left: number; right: number }>) => {
+        rawInputRef.current = { ...rawInputRef.current, ...d };
+      });
+      await addL('m32:busMeters', (d: Record<string, { left: number; right: number }>) => {
+        rawBusRef.current = { ...rawBusRef.current, ...d };
+      });
+    })();
+
+    return () => { listeners.forEach(l => l.remove()); };
+  }, []);
+
+  // ── Web/PWA path (Socket.io → server PC) ─────────────────
+  useEffect(() => {
+    if (IS_NATIVE || !socket) return;
 
     const onHandshake = (data: { m32Status?: M32Status }) => {
       if (data.m32Status) setM32Status(data.m32Status);
@@ -168,18 +211,31 @@ export function useM32(socket: Socket | null) {
     };
   }, [socket]);
 
-  // ── Commands ──────────────────────────────────────────────
+  // ── Commands (dual-path) ──────────────────────────────────
 
   const connectM32 = useCallback((ip: string) => {
-    socket?.emit('m32:connect', { ip });
+    if (IS_NATIVE) {
+      M32Native.connect({ ip });
+    } else {
+      socket?.emit('m32:connect', { ip });
+    }
   }, [socket]);
 
   const disconnectM32 = useCallback(() => {
-    socket?.emit('m32:disconnect');
+    if (IS_NATIVE) {
+      M32Native.disconnect();
+    } else {
+      socket?.emit('m32:disconnect');
+    }
+    setM32Status({ status: 'disconnected' });
   }, [socket]);
 
   const setChannelSendLevel = useCallback((ch: string, bus: string, level: number) => {
-    socket?.emit('m32:setChannelSendLevel', { ch, bus, level });
+    if (IS_NATIVE) {
+      M32Native.setChannelSendLevel({ ch, bus, level });
+    } else {
+      socket?.emit('m32:setChannelSendLevel', { ch, bus, level });
+    }
     setSendLevels(prev => ({
       ...prev,
       [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], level },
@@ -187,7 +243,11 @@ export function useM32(socket: Socket | null) {
   }, [socket]);
 
   const setChannelSendOn = useCallback((ch: string, bus: string, on: boolean) => {
-    socket?.emit('m32:setChannelSendOn', { ch, bus, on });
+    if (IS_NATIVE) {
+      M32Native.setChannelSendOn({ ch, bus, on });
+    } else {
+      socket?.emit('m32:setChannelSendOn', { ch, bus, on });
+    }
     setSendLevels(prev => ({
       ...prev,
       [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], on },
@@ -195,7 +255,11 @@ export function useM32(socket: Socket | null) {
   }, [socket]);
 
   const setBusLevel = useCallback((bus: string, level: number) => {
-    socket?.emit('m32:setBusLevel', { bus, level });
+    if (IS_NATIVE) {
+      M32Native.setBusLevel({ bus, level });
+    } else {
+      socket?.emit('m32:setBusLevel', { bus, level });
+    }
     setBusLevels(prev => ({
       ...prev,
       [bus]: { ...prev[bus], level },
@@ -203,7 +267,11 @@ export function useM32(socket: Socket | null) {
   }, [socket]);
 
   const setBusOn = useCallback((bus: string, on: boolean) => {
-    socket?.emit('m32:setBusOn', { bus, on });
+    if (IS_NATIVE) {
+      M32Native.setBusOn({ bus, on });
+    } else {
+      socket?.emit('m32:setBusOn', { bus, on });
+    }
     setBusLevels(prev => ({
       ...prev,
       [bus]: { ...prev[bus], on },
@@ -211,7 +279,11 @@ export function useM32(socket: Socket | null) {
   }, [socket]);
 
   const queryBus = useCallback((busNum: number) => {
-    socket?.emit('m32:queryBus', { bus: busNum });
+    if (IS_NATIVE) {
+      M32Native.queryBus({ bus: busNum });
+    } else {
+      socket?.emit('m32:queryBus', { bus: busNum });
+    }
   }, [socket]);
 
   return {

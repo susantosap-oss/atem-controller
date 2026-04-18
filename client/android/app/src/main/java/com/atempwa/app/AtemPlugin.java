@@ -122,6 +122,14 @@ public class AtemPlugin extends Plugin implements AtemConnection.Listener {
     }
 
     @PluginMethod
+    public void setTransitionPosition(PluginCall call) {
+        if (!checkConnected(call)) return;
+        int position = call.getInt("position", 0);
+        atem.sendTransitionPosition(position);
+        call.resolve();
+    }
+
+    @PluginMethod
     public void performFTB(PluginCall call) {
         if (!checkConnected(call)) return;
         atem.sendFadeToBlack();
@@ -178,6 +186,11 @@ public class AtemPlugin extends Plugin implements AtemConnection.Listener {
     @Override
     public void onVuMeter(JSObject levels) {
         notifyListeners("atem:vuMeter", levels);
+    }
+
+    @Override
+    public void onMediaState(JSObject state) {
+        notifyListeners("atem:mediaState", state);
     }
 
     // ── helpers ───────────────────────────────────────────────────

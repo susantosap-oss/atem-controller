@@ -13,6 +13,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(AtemPlugin.class);
+        registerPlugin(M32Plugin.class);
         super.onCreate(savedInstanceState);
         // Jaga layar tetap menyala selama aplikasi aktif
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);

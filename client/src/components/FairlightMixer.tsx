@@ -59,8 +59,9 @@ export default function FairlightMixer({
   onMasterBalanceChange,
 }: FairlightMixerProps) {
 
-  // Use real data when connected, placeholder when not
-  const displayState = audioState ?? PLACEHOLDER_STATE;
+  // Use real data when connected AND channels have been received, else placeholder
+  const displayState = (audioState && Object.keys(audioState.channels).length > 0)
+    ? audioState : PLACEHOLDER_STATE;
 
   const sortedChannelKeys = useMemo(
     () => sortChannels(displayState.channels),

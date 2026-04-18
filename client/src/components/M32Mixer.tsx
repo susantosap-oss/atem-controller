@@ -63,6 +63,7 @@ interface M32MixerProps {
   busLevels:      Record<string, M32BusEntry>;
   inputVu:        Record<string, LevelData>;
   busVu:          Record<string, LevelData>;
+  serverConnected: boolean;
   onConnect:      (ip: string) => void;
   onDisconnect:   () => void;
   onChannelSendLevel: (ch: string, bus: string, level: number) => void;
@@ -376,6 +377,7 @@ export default function M32Mixer({
   busLevels,
   inputVu,
   busVu,
+  serverConnected,
   onConnect,
   onDisconnect,
   onChannelSendLevel,
@@ -507,6 +509,15 @@ export default function M32Mixer({
         {/* Status dot */}
         <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDot}`} />
       </div>
+
+      {/* ── Server not connected notice ──────────────────── */}
+      {!serverConnected && (
+        <div className="px-3 py-1.5 bg-amber-950/40 border-b border-amber-800/50 shrink-0">
+          <span className="text-[10px] text-amber-400/80 uppercase tracking-widest">
+            ⚠ M32 memerlukan koneksi ke Server PC — hubungkan server terlebih dahulu
+          </span>
+        </div>
+      )}
 
       {/* ── Bus selector ───────────────────────────────────── */}
       <div className="flex items-center gap-1 px-3 py-1.5 bg-navy-900/60

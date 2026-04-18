@@ -155,6 +155,7 @@ export default function HomePage() {
                   busLevels={busLevels}
                   inputVu={inputVu}
                   busVu={busVu}
+                  serverConnected={socketStatus === 'connected'}
                   onConnect={connectM32}
                   onDisconnect={disconnectM32}
                   onChannelSendLevel={setChannelSendLevel}

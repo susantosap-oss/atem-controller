@@ -99,13 +99,13 @@ export default function VideoSwitcher({
           ════════════════════════════════════════════════════════ */}
       <div className="flex items-center px-4 py-2 bg-navy-900 border-b border-navy-700/70 shrink-0">
         <div className="flex items-center gap-2">
-          {/* Icon: stacked video layers */}
-          <div className="flex flex-col gap-[2px]">
-            {[0, 1, 2].map(i => (
-              <div key={i} className={`rounded-sm ${i === 0 ? 'w-5 h-1' : i === 1 ? 'w-4 h-1' : 'w-3 h-1'}`}
-                style={{ background: i === 0 ? '#ef4444' : i === 1 ? '#22c55e' : '#3b82f6', opacity: 0.85 }} />
-            ))}
-          </div>
+          {/* Icon: camera */}
+          <svg width="20" height="16" viewBox="0 0 20 16" fill="none" className="opacity-85">
+            <path d="M7 2h6l1.5 2H18a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5L7 2Z"
+              stroke="#94a3b8" strokeWidth="1.2" fill="rgba(148,163,184,0.08)" />
+            <circle cx="10" cy="8.5" r="2.8" stroke="#ef4444" strokeWidth="1.2" fill="rgba(239,68,68,0.12)" />
+            <circle cx="10" cy="8.5" r="1.2" fill="#ef4444" opacity="0.7" />
+          </svg>
           <span className="text-sm font-bold tracking-wide text-navy-100">
             ATEM SWITCHER
           </span>
@@ -423,25 +423,29 @@ function TBar({ position, inTransition, disabled, onSetPosition, onTransitionCom
         </span>
       </div>
 
-      {/* Track */}
+      {/* Track — tall hit area, thin visual rail inside */}
       <div
         ref={trackRef}
-        className={`flex-1 relative rounded-xl border overflow-hidden min-h-[44px]
-          ${inTransition ? 'border-amber-600/60' : 'border-navy-600'}
-          ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}
-          bg-navy-900`}
+        className={`flex-1 relative flex items-center
+          ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
         onMouseDown={e => onStart(e.clientX)}
         onTouchStart={e => onStart(e.touches[0].clientX)}
       >
-        {/* PGM / PVW fill */}
-        <div className="absolute top-0 bottom-0 pointer-events-none" style={pgmFill as React.CSSProperties} />
-        <div className="absolute top-0 bottom-0 pointer-events-none" style={pvwFill as React.CSSProperties} />
+        {/* Thin rail */}
+        <div className={`absolute inset-x-0 h-[6px] rounded-full overflow-hidden
+          ${inTransition ? 'border border-amber-600/40' : 'border border-navy-700'}
+          bg-navy-900`}
+        >
+          {/* PGM / PVW fill on thin rail */}
+          <div className="absolute top-0 bottom-0 pointer-events-none" style={pgmFill as React.CSSProperties} />
+          <div className="absolute top-0 bottom-0 pointer-events-none" style={pvwFill as React.CSSProperties} />
+        </div>
 
-        {/* ── Pegangan Tuas (lever handle) ── */}
+        {/* ── Pegangan Tuas (lever handle) — floats above thin rail ── */}
         <div
           className="absolute top-[6px] bottom-[6px] w-10 -translate-x-1/2 rounded-xl pointer-events-none overflow-hidden"
           style={{
-            left: `${pct}%`,
+            left: `clamp(20px, ${pct}%, calc(100% - 20px))`,
             background: 'linear-gradient(180deg, #c8d6e5 0%, #94a3b8 25%, #6b8299 60%, #4a6075 100%)',
             boxShadow: '0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.35)',
           }}

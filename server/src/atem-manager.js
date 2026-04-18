@@ -106,9 +106,10 @@ class AtemManager extends EventEmitter {
   _handleStateChange(pathKeys) {
     if (!pathKeys || !pathKeys.length) return;
 
-    // Emit full audio state for non-level audio paths OR when input names change
+    // Emit full audio state for non-level audio/fairlight paths OR when input names change
     const audioStatePaths = pathKeys.filter(
       k => (k.startsWith('audio') && !k.includes('levels')) ||
+           (k.startsWith('fairlight') && !k.includes('levels')) ||
            k.startsWith('settings.inputs')
     );
     if (audioStatePaths.length > 0) {
@@ -141,7 +142,44 @@ class AtemManager extends EventEmitter {
   buildMediaState() { return this._buildMediaState(); }
   buildVideoState() { return this._buildVideoState(); }
 
+  _isFairlight() {
+    return this._state?.fairlight &&
+      Object.keys(this._state.fairlight.inputs ?? {}).length > 0;
+  }
+
+  _getFairlightSourceKey(inputIndex) {
+    const sources = this._state?.fairlight?.inputs?.[inputIndex]?.sources;
+    if (!sources) return null;
+    const keys = Object.keys(sources);
+    return keys.length > 0 ? keys[0] : null;
+  }
+
   _buildAudioState() {
+    // Fairlight path (ATEM Mini Pro firmware 8.6+)
+    if (this._isFairlight()) {
+      const channels = {};
+      for (const [idx, input] of Object.entries(this._state.fairlight.inputs)) {
+        const sources = input?.sources ?? {};
+        const srcKeys = Object.keys(sources);
+        if (srcKeys.length === 0) continue;
+        const props = sources[srcKeys[0]]?.properties ?? {};
+        channels[idx] = {
+          gain:      (props.faderGain ?? 0) / 100,   // centidB → dB
+          balance:   (props.balance  ?? 0) / 200,    // raw int16 → -50..+50
+          mixOption: props.mixOption ?? 0,
+          label:     this._getChannelLabel(Number(idx)),
+        };
+      }
+      const masterProps = this._state.fairlight.master?.properties ?? {};
+      const master = {
+        gain:              (masterProps.faderGain ?? 0) / 100,
+        balance:           0,
+        followFadeToBlack: masterProps.followFadeToBlack ?? false,
+      };
+      return { channels, master };
+    }
+
+    // Classic audio path (older firmware)
     if (!this._state?.audio) return null;
     const audio = this._state.audio;
 
@@ -149,18 +187,18 @@ class AtemManager extends EventEmitter {
     if (audio.channels) {
       for (const [idx, ch] of Object.entries(audio.channels)) {
         channels[idx] = {
-          gain: ch.gain ?? 0,          // dB value 0 = unity, range -60..+6
-          balance: ch.balance ?? 0,
-          mixOption: ch.mixOption ?? 0, // 0=Off, 1=On, 4=AFV
-          label: this._getChannelLabel(Number(idx)),
+          gain:      ch.gain      ?? 0,
+          balance:   ch.balance   ?? 0,
+          mixOption: ch.mixOption ?? 0,
+          label:     this._getChannelLabel(Number(idx)),
         };
       }
     }
 
     const master = audio.master
       ? {
-          gain: audio.master.gain ?? 0,
-          balance: audio.master.balance ?? 0,
+          gain:              audio.master.gain             ?? 0,
+          balance:           audio.master.balance          ?? 0,
           followFadeToBlack: audio.master.followFadeToBlack ?? false,
         }
       : { gain: 0, balance: 0, followFadeToBlack: false };
@@ -213,28 +251,52 @@ class AtemManager extends EventEmitter {
 
   async setChannelGain(index, gainDb) {
     if (!this._isConnected()) return;
-    await this._atem.setAudioMixerInputProps(index, { gain: gainDb });
+    if (this._isFairlight()) {
+      const src = this._getFairlightSourceKey(index);
+      if (src !== null)
+        await this._atem.setFairlightAudioMixerSourceProps(index, BigInt(src), { faderGain: Math.round(gainDb * 100) });
+    } else {
+      await this._atem.setClassicAudioMixerInputProps(index, { gain: gainDb });
+    }
   }
 
   async setChannelMixOption(index, mixOption) {
-    // mixOption: 0=Off, 1=On, 4=AFV
     if (!this._isConnected()) return;
-    await this._atem.setAudioMixerInputProps(index, { mixOption });
+    if (this._isFairlight()) {
+      const src = this._getFairlightSourceKey(index);
+      if (src !== null)
+        await this._atem.setFairlightAudioMixerSourceProps(index, BigInt(src), { mixOption });
+    } else {
+      await this._atem.setClassicAudioMixerInputProps(index, { mixOption });
+    }
   }
 
   async setChannelBalance(index, balance) {
     if (!this._isConnected()) return;
-    await this._atem.setAudioMixerInputProps(index, { balance });
+    if (this._isFairlight()) {
+      const src = this._getFairlightSourceKey(index);
+      if (src !== null)
+        await this._atem.setFairlightAudioMixerSourceProps(index, BigInt(src), { balance: Math.round(balance * 200) });
+    } else {
+      await this._atem.setClassicAudioMixerInputProps(index, { balance });
+    }
   }
 
   async setMasterGain(gainDb) {
     if (!this._isConnected()) return;
-    await this._atem.setAudioMixerMasterProps({ gain: gainDb });
+    if (this._isFairlight()) {
+      await this._atem.setFairlightAudioMixerMasterProps({ faderGain: Math.round(gainDb * 100) });
+    } else {
+      await this._atem.setClassicAudioMixerMasterProps({ gain: gainDb });
+    }
   }
 
   async setMasterBalance(balance) {
     if (!this._isConnected()) return;
-    await this._atem.setAudioMixerMasterProps({ balance });
+    if (!this._isFairlight()) {
+      // Fairlight master has no balance — only send for classic audio
+      await this._atem.setClassicAudioMixerMasterProps({ balance });
+    }
   }
 
   // ── Video Switcher Commands ─────────────────────────────────

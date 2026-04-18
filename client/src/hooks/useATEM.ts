@@ -185,6 +185,10 @@ export function useATEM(socket: Socket | null): UseATEMReturn {
       rawVuRef.current = { ...rawVuRef.current, ...levels };
     }));
 
+    handles.push(AtemNative.addListener('atem:mediaState', (data: MediaState) => {
+      setMediaState(data);
+    }));
+
     return () => {
       handles.forEach(h => h.then(r => r.remove()).catch(() => {}));
     };
@@ -347,9 +351,9 @@ export function useATEM(socket: Socket | null): UseATEMReturn {
   }, [isNative, socket]);
 
   const setTransitionPosition = useCallback((position: number) => {
-    // transitionPosition: web only (native support to be added if needed)
-    socket?.emit('atem:setTransitionPosition', { position });
-  }, [socket]);
+    if (isNative) AtemNative.setTransitionPosition({ position }).catch(console.error);
+    else socket?.emit('atem:setTransitionPosition', { position });
+  }, [isNative, socket]);
 
   const performFTB = useCallback(() => {
     if (isNative) AtemNative.performFTB().catch(console.error);
