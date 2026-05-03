@@ -155,7 +155,7 @@ export default function FairlightMixer({
 
         {/* Master strip — fixed right */}
         <div className="border-l-2 border-amber-800/60 bg-amber-950/10
-                        shrink-0 flex flex-col justify-end"
+                        shrink-0 flex flex-col overflow-y-auto"
              style={{ padding: '8px 8px' }}>
           <AudioChannel
             index="master"

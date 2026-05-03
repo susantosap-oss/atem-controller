@@ -26,7 +26,7 @@ public class AtemPlugin extends Plugin implements AtemConnection.Listener {
         if (atem != null) {
             atem.disconnect();
         }
-        atem = new AtemConnection(ip, this);
+        atem = new AtemConnection(ip, this, getContext());
         atem.connect();
         call.resolve();
     }

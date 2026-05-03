@@ -39,11 +39,48 @@ class AtemManager extends EventEmitter {
       clearTimeout(this._reconnectTimer);
       this._state = this._atem.state;
       this._setStatus('connected');
+
+      // Debug: log which audio system is active
+      console.log('[ATEM] fairlight present:', !!this._state?.fairlight,
+        '| inputs:', Object.keys(this._state?.fairlight?.inputs ?? {}).length,
+        '| audio present:', !!this._state?.audio);
+
       this.emit('audioState', this._buildAudioState());
       const ms = this._buildMediaState();
       if (ms) this.emit('mediaState', ms);
       const vs = this._buildVideoState();
       if (vs) this.emit('videoState', vs);
+
+      // Start Fairlight VU meter streaming
+      if (this._isFairlight()) {
+        this._atem.startFairlightMixerSendLevels().catch(e =>
+          console.warn('[ATEM] startFairlightMixerSendLevels failed:', e?.message)
+        );
+      }
+    });
+
+    // Fairlight level events (bypass stateChanged — emitted by atem-connection directly)
+    this._atem.on('levelChanged', (levelData) => {
+      if (!this._isConnected()) return;
+      const levels = {};
+      if (levelData.type === 'source') {
+        const l = levelData.levels;
+        levels[String(levelData.index)] = {
+          left:      Math.max(l.leftLevel  / 100, -60),
+          right:     Math.max(l.rightLevel / 100, -60),
+          peakLeft:  Math.max(l.leftPeak   / 100, -60),
+          peakRight: Math.max(l.rightPeak  / 100, -60),
+        };
+      } else if (levelData.type === 'master') {
+        const l = levelData.levels;
+        levels['master'] = {
+          left:      Math.max(l.leftLevel  / 100, -60),
+          right:     Math.max(l.rightLevel / 100, -60),
+          peakLeft:  Math.max(l.leftPeak   / 100, -60),
+          peakRight: Math.max(l.rightPeak  / 100, -60),
+        };
+      }
+      if (Object.keys(levels).length > 0) this.emit('vuMeter', levels);
     });
 
     this._atem.on('disconnected', () => {
@@ -110,7 +147,7 @@ class AtemManager extends EventEmitter {
     const audioStatePaths = pathKeys.filter(
       k => (k.startsWith('audio') && !k.includes('levels')) ||
            (k.startsWith('fairlight') && !k.includes('levels')) ||
-           k.startsWith('settings.inputs')
+           k.startsWith('inputs.')
     );
     if (audioStatePaths.length > 0) {
       this.emit('audioState', this._buildAudioState());
@@ -123,8 +160,8 @@ class AtemManager extends EventEmitter {
       if (ms) this.emit('mediaState', ms);
     }
 
-    // Emit video state when ME inputs/transition change
-    const videoStatePaths = pathKeys.filter(k => k.startsWith('video'));
+    // Emit video state when ME inputs/transition change or input labels change
+    const videoStatePaths = pathKeys.filter(k => k.startsWith('video') || k.startsWith('inputs.'));
     if (videoStatePaths.length > 0) {
       const vs = this._buildVideoState();
       if (vs) this.emit('videoState', vs);
@@ -170,13 +207,17 @@ class AtemManager extends EventEmitter {
           label:     this._getChannelLabel(Number(idx)),
         };
       }
-      const masterProps = this._state.fairlight.master?.properties ?? {};
-      const master = {
-        gain:              (masterProps.faderGain ?? 0) / 100,
-        balance:           0,
-        followFadeToBlack: masterProps.followFadeToBlack ?? false,
-      };
-      return { channels, master };
+      // If channels populated, return Fairlight state
+      if (Object.keys(channels).length > 0) {
+        const masterProps = this._state.fairlight.master?.properties ?? {};
+        const master = {
+          gain:              (masterProps.faderGain ?? 0) / 100,
+          balance:           0,
+          followFadeToBlack: masterProps.followFadeToBlack ?? false,
+        };
+        return { channels, master };
+      }
+      // Fairlight inputs exist but sources not yet populated — fall through to classic
     }
 
     // Classic audio path (older firmware)
@@ -234,7 +275,7 @@ class AtemManager extends EventEmitter {
 
   _getChannelLabel(idx) {
     // Prefer actual input name set in ATEM Software Control (e.g. "Cam 1", "Laptop")
-    const shortName = this._state?.settings?.inputs?.[idx]?.shortName?.trim();
+    const shortName = this._state?.inputs?.[idx]?.shortName?.trim();
     if (shortName) return shortName;
 
     // Fallback: physical connector labels (for MIC/XLR which have no settings.inputs entry)
@@ -361,27 +402,27 @@ class AtemManager extends EventEmitter {
 
   _buildVideoState() {
     if (!this._state?.video) return null;
-    const me = this._state.video.ME?.[0];
+    const me = this._state.video.mixEffects?.[0];
     if (!me) return null;
 
     // Downstream keyers (DSK1 = index 0, DSK2 = index 1)
     const dsk = [0, 1].map(i => {
       const d = this._state.video.downstreamKeyers?.[i];
       return {
-        onAir:        d?.onAir        ?? false,
-        inTransition: d?.inTransition ?? false,
-        autoRate:     d?.autoRate     ?? 25,
-        fillSource:   d?.sources?.fillSource ?? 0,
-        cutSource:    d?.sources?.cutSource  ?? 0,
+        onAir:        d?.onAir                  ?? false,
+        inTransition: d?.inTransition            ?? false,
+        autoRate:     d?.properties?.rate        ?? 25,
+        fillSource:   d?.sources?.fillSource     ?? 0,
+        cutSource:    d?.sources?.cutSource      ?? 0,
       };
     });
 
     return {
-      programInput: me.programInput ?? 0,
-      previewInput: me.previewInput ?? 0,
-      transitionStyle: me.transitionSettings?.style ?? 0,
-      transitionInProgress: me.transitionInProgress ?? false,
-      transitionPosition: me.transitionPosition ?? 0,
+      programInput:         me.programInput                       ?? 0,
+      previewInput:         me.previewInput                       ?? 0,
+      transitionStyle:      me.transitionProperties?.style        ?? 0,
+      transitionInProgress: me.transitionPosition?.inTransition   ?? false,
+      transitionPosition:   me.transitionPosition?.handlePosition ?? 0,
       fadeToBlack: {
         isFullyBlack: me.fadeToBlack?.isFullyBlack ?? false,
         inTransition: me.fadeToBlack?.inTransition ?? false,
@@ -395,7 +436,7 @@ class AtemManager extends EventEmitter {
     const sources = { 1: 'CH 1', 2: 'CH 2', 3: 'CH 3', 4: 'CH 4', 3010: 'MP 1', 3020: 'MP 2', 0: 'BLK' };
     const labels = {};
     for (const [id, fallback] of Object.entries(sources)) {
-      const shortName = this._state?.settings?.inputs?.[Number(id)]?.shortName?.trim();
+      const shortName = this._state?.inputs?.[Number(id)]?.shortName?.trim();
       labels[id] = shortName || fallback;
     }
     return labels;

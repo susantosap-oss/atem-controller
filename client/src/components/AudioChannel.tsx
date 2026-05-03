@@ -128,7 +128,7 @@ export default function AudioChannel({
   const scaleMarks = [-60, -40, -20, -10, -5, 0, 6];
 
   return (
-    <div className="flex flex-col items-center gap-1 select-none" style={{ width: 64 }}>
+    <div className="flex flex-col items-center gap-1 select-none" style={{ width: 72 }}>
 
       {/* Channel Label */}
       <div className="w-full text-center">
@@ -144,16 +144,17 @@ export default function AudioChannel({
         </span>
       </div>
 
-      {/* VU Meter */}
-      <div className="flex justify-center">
-        <VUMeter levels={levels} height={FADER_HEIGHT} compact={false} />
-      </div>
+      {/* VU + Fader side by side */}
+      <div className="flex flex-row items-stretch gap-1">
 
-      {/* Fader section */}
-      <div
-        className="relative bg-navy-950 rounded border border-navy-700/60"
-        style={{ width: 32, height: FADER_HEIGHT }}
-      >
+        {/* VU Meter */}
+        <VUMeter levels={levels} height={FADER_HEIGHT} compact={true} />
+
+        {/* Fader section */}
+        <div
+          className="relative bg-navy-950 rounded border border-navy-700/60"
+          style={{ width: 28, height: FADER_HEIGHT, touchAction: 'none' }}
+        >
         {/* dB scale marks */}
         {scaleMarks.map((db) => {
           const pct = (1 - dbToFaderPos(db)) * 100;
@@ -185,10 +186,12 @@ export default function AudioChannel({
             transform: 'translateX(-50%) translateY(-50%)',
             width: 28,
             height: 12,
+            touchAction: 'none',
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           onClick={handleFaderTap}
           title={`${formatDb(gain)} dB — double-tap to reset`}
         >
@@ -198,7 +201,9 @@ export default function AudioChannel({
             ))}
           </div>
         </div>
-      </div>
+
+        </div>{/* end fader */}
+      </div>{/* end VU+fader row */}
 
       {/* dB Readout */}
       <div
@@ -224,10 +229,11 @@ export default function AudioChannel({
         {/* Drag track */}
         <div
           className="relative bg-navy-950 rounded-sm border border-navy-700/50"
-          style={{ width: '100%', height: 14, cursor: onBalanceChange ? 'ew-resize' : 'default' }}
+          style={{ width: '100%', height: 14, cursor: onBalanceChange ? 'ew-resize' : 'default', touchAction: 'none' }}
           onPointerDown={handlePanDown}
           onPointerMove={handlePanMove}
           onPointerUp={handlePanUp}
+          onPointerCancel={handlePanUp}
           onClick={handlePanTap}
           title="Pan — double-tap to center"
         >

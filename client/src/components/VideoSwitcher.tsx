@@ -338,6 +338,14 @@ function TBar({ position, inTransition, disabled, onSetPosition, onTransitionCom
   const [thumbPct, setThumbPct] = useState(0);
 
   useEffect(() => {
+    if (!disabled) return;
+    // Reset T-bar state on disconnect so next session starts clean
+    dragging.current = false;
+    flipped.current  = false;
+    setThumbPct(0);
+  }, [disabled]);
+
+  useEffect(() => {
     if (dragging.current) return;
     if (inTransition) {
       const pct = (position / 9999) * 100;

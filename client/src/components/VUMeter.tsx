@@ -38,7 +38,7 @@ function Bar({
   barHeight: number;
 }) {
   const fillPct  = Math.min(100, Math.max(0, dbToVuHeight(db) * 100));
-  const peakPct  = Math.min(100, Math.max(0, dbToVuHeight(peakDb) * 100));
+  const peakPct  = Math.min(99.5, Math.max(0, dbToVuHeight(peakDb) * 100));
   const barColor = getBarColor(db);
 
   return (
