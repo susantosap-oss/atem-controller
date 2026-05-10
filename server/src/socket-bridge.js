@@ -40,6 +40,8 @@ function start(port) {
   io = new Server(httpServer, {
     cors: { origin: '*', methods: ['GET', 'POST'] },
     transports: ['websocket', 'polling'],
+    pingInterval: 30000,  // kirim ping tiap 30s
+    pingTimeout: 60000,   // tunggu pong 60s sebelum dianggap mati — toleransi WiFi Android tidur
   });
 
   // ── ATEM event → broadcast to all clients ────────────────

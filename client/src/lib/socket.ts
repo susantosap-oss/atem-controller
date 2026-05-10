@@ -69,12 +69,12 @@ export function getSocket(): Socket {
     }
 
     socket = io(url || 'http://placeholder.local', {
-      transports: ['polling', 'websocket'],
+      transports: ['websocket', 'polling'], // WebSocket first — lebih stabil di WiFi
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: Infinity,
-      timeout: 15000, // Lebih lama — beri waktu Node.js embedded startup
+      timeout: 15000,
       autoConnect: !!url,
     });
   }
