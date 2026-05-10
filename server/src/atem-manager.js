@@ -13,6 +13,8 @@ class AtemManager extends EventEmitter {
     this._status = 'disconnected'; // 'connecting' | 'connected' | 'disconnected' | 'error'
     this._reconnectTimer = null;
     this._state = null;
+    this._levelAccum = {}; // accumulates stereo sub-channel levels per input index
+    this._defaultApplied = false; // on first audioState build, non-Mic1 channels start silent
   }
 
   get status() { return this._status; }
@@ -65,12 +67,24 @@ class AtemManager extends EventEmitter {
       const levels = {};
       if (levelData.type === 'source') {
         const l = levelData.levels;
-        levels[String(levelData.index)] = {
-          left:      Math.max(l.leftLevel  / 100, -60),
-          right:     Math.max(l.rightLevel / 100, -60),
-          peakLeft:  Math.max(l.leftPeak   / 100, -60),
-          peakRight: Math.max(l.rightPeak  / 100, -60),
-        };
+        const key = String(levelData.index);
+        if (!this._levelAccum[key]) {
+          this._levelAccum[key] = { left: -60, right: -60, peakLeft: -60, peakRight: -60 };
+        }
+        const acc = this._levelAccum[key];
+        // ATEM sends two FMLv packets for stereo channels: source < 0 = left sub-channel,
+        // source >= 0 = right sub-channel. Accumulate both so stereo shows as L+R, not mono.
+        // For mono channels (only source < 0 ever arrives), mirror left → right as fallback.
+        if (levelData.source < 0n) {
+          acc.left      = Math.max(l.leftLevel / 100, -60);
+          acc.right     = Math.max(l.leftLevel / 100, -60); // overwritten if stereo right arrives
+          acc.peakLeft  = Math.max(l.leftPeak  / 100, -60);
+          acc.peakRight = Math.max(l.leftPeak  / 100, -60);
+        } else {
+          acc.right     = Math.max(l.leftLevel / 100, -60);
+          acc.peakRight = Math.max(l.leftPeak  / 100, -60);
+        }
+        levels[key] = { ...acc };
       } else if (levelData.type === 'master') {
         const l = levelData.levels;
         levels['master'] = {
@@ -121,6 +135,8 @@ class AtemManager extends EventEmitter {
     }
     if (clearIP) this._ip = null;
     this._state = null;
+    this._levelAccum = {};
+    this._defaultApplied = false;
     this._setStatus('disconnected');
   }
 
@@ -200,13 +216,18 @@ class AtemManager extends EventEmitter {
         const srcKeys = Object.keys(sources);
         if (srcKeys.length === 0) continue;
         const props = sources[srcKeys[0]]?.properties ?? {};
+        const gainDb = (props.faderGain ?? 0) / 100;
+        // On first connect, non-Mic1 channels default to silent so no accidental audio blast.
+        // After _defaultApplied is set, all subsequent state updates use actual ATEM values.
+        const isMic1 = idx === '1301';
         channels[idx] = {
-          gain:      (props.faderGain ?? 0) / 100,   // centidB → dB
-          balance:   (props.balance  ?? 0) / 200,    // raw int16 → -50..+50
+          gain:      (isMic1 || this._defaultApplied) ? gainDb : -60,
+          balance:   (props.balance  ?? 0) / 200,
           mixOption: props.mixOption ?? 0,
           label:     this._getChannelLabel(Number(idx)),
         };
       }
+      this._defaultApplied = true;
       // If channels populated, return Fairlight state
       if (Object.keys(channels).length > 0) {
         const masterProps = this._state.fairlight.master?.properties ?? {};

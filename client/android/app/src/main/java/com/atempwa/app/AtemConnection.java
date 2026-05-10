@@ -4,8 +4,10 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.util.Log;
 
 import com.getcapacitor.JSArray;
@@ -116,6 +118,10 @@ public class AtemConnection {
     private long lastVideoEmitMs = 0;
     private boolean hasLoggedFMLv = false;
 
+    // Keep connection alive when screen off / app in background
+    private WifiManager.WifiLock wifiLock;
+    private PowerManager.WakeLock wakeLock;
+
     public AtemConnection(String ip, Listener listener, Context context) {
         this.ip = ip;
         this.listener = listener;
@@ -163,6 +169,21 @@ public class AtemConnection {
         }
         scheduler = Executors.newSingleThreadScheduledExecutor();
 
+        // Prevent WiFi radio from sleeping and CPU from dozing while connected to ATEM
+        WifiManager wifiMgr = (WifiManager) context.getApplicationContext()
+                .getSystemService(Context.WIFI_SERVICE);
+        if (wifiMgr != null) {
+            wifiLock = wifiMgr.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "atem:wifi");
+            wifiLock.setReferenceCounted(false);
+            wifiLock.acquire();
+        }
+        PowerManager powerMgr = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        if (powerMgr != null) {
+            wakeLock = powerMgr.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "atem:wake");
+            wakeLock.setReferenceCounted(false);
+            wakeLock.acquire();
+        }
+
         emitStatus("connecting", "", ip);
 
         receiveThread = new Thread(this::receiveLoop, "atem-recv");
@@ -194,6 +215,8 @@ public class AtemConnection {
         if (keepAliveFuture != null) { keepAliveFuture.cancel(true); }
         if (scheduler != null) { scheduler.shutdownNow(); }
         closeSocket();
+        if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         emitStatus("disconnected", "", ip);
     }
 
