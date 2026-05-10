@@ -72,14 +72,16 @@ class AtemManager extends EventEmitter {
           this._levelAccum[key] = { left: -60, right: -60, peakLeft: -60, peakRight: -60 };
         }
         const acc = this._levelAccum[key];
-        // ATEM sends two FMLv packets for stereo channels: source < 0 = left sub-channel,
-        // source >= 0 = right sub-channel. Accumulate both so stereo shows as L+R, not mono.
-        // For mono channels (only source < 0 ever arrives), mirror left → right as fallback.
+        // Stereo channels send TWO FMLv packets, both with source < 0:
+        //   left sub-channel:  leftLevel=active, rightLevel=-100 (silent)
+        //   right sub-channel: leftLevel=-100,   rightLevel=active
+        // Accumulate per field: only overwrite if the value is above -90 (i.e. not silent filler).
+        // Mono channels send one packet where both leftLevel and rightLevel are active.
         if (levelData.source < 0n) {
-          acc.left      = Math.max(l.leftLevel / 100, -60);
-          acc.right     = Math.max(l.leftLevel / 100, -60); // overwritten if stereo right arrives
-          acc.peakLeft  = Math.max(l.leftPeak  / 100, -60);
-          acc.peakRight = Math.max(l.leftPeak  / 100, -60);
+          const lv = l.leftLevel  / 100;
+          const rv = l.rightLevel / 100;
+          if (lv > -90) { acc.left     = Math.max(lv, -60); acc.peakLeft  = Math.max(l.leftPeak  / 100, -60); }
+          if (rv > -90) { acc.right    = Math.max(rv, -60); acc.peakRight = Math.max(l.rightPeak / 100, -60); }
         } else {
           acc.right     = Math.max(l.leftLevel / 100, -60);
           acc.peakRight = Math.max(l.leftPeak  / 100, -60);

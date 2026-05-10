@@ -594,7 +594,17 @@ public class AtemConnection {
         double right     = (short)(((p[34] & 0xFF) << 8) | (p[35] & 0xFF)) / 100.0;
         double peakLeft  = (short)(((p[36] & 0xFF) << 8) | (p[37] & 0xFF)) / 100.0;
         double peakRight = (short)(((p[38] & 0xFF) << 8) | (p[39] & 0xFF)) / 100.0;
-        vuLevels.put(ch, new double[]{left, right, peakLeft, peakRight});
+        // Stereo channels send TWO FMLv packets, both with negative source:
+        //   left sub-channel:  left=active, right=-100 (silent filler)
+        //   right sub-channel: left=-100,   right=active
+        // Accumulate per field so both bars update correctly.
+        double[] accum = vuLevels.get(ch);
+        if (accum == null) {
+            accum = new double[]{-60.0, -60.0, -60.0, -60.0};
+        }
+        if (left  > -90.0) { accum[0] = left;     accum[2] = peakLeft;  }
+        if (right > -90.0) { accum[1] = right;    accum[3] = peakRight; }
+        vuLevels.put(ch, accum);
     }
 
     private void parseFairlightMasterLevels(byte[] p) {
