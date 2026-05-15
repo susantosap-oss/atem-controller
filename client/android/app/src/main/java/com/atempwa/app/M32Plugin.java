@@ -8,15 +8,23 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 /**
  * M32Plugin — Capacitor bridge untuk M32Connection.
- * Expose metode connect/disconnect dan control commands ke JavaScript.
- * Events: m32:status, m32:channelNames, m32:busNames, m32:busConfig,
- *         m32:sendLevel, m32:sendOn, m32:busLevel, m32:busOn,
- *         m32:inputMeters, m32:busMeters
+ * Events emitted to JS:
+ *   m32:status, m32:channelNames, m32:busNames, m32:busConfig,
+ *   m32:sendLevel, m32:sendOn, m32:sendPre,
+ *   m32:busLevel, m32:busOn,
+ *   m32:inputMeters (throttled ~30fps), m32:busMeters (throttled ~30fps)
  */
 @CapacitorPlugin(name = "M32")
 public class M32Plugin extends Plugin implements M32Connection.Listener {
 
     private M32Connection m32;
+
+    // Throttle meter events to ~30fps (33ms) to avoid flooding Capacitor JS bridge
+    private static final long METER_THROTTLE_MS = 33;
+    private long lastInputMeterEmit = 0;
+    private long lastBusMeterEmit   = 0;
+
+    // ── Plugin methods (called from JS) ───────────────────────
 
     @PluginMethod
     public void connect(PluginCall call) {
@@ -83,7 +91,7 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
         call.resolve();
     }
 
-    // ── M32Connection.Listener callbacks ─────────────────────────
+    // ── M32Connection.Listener callbacks ─────────────────────
 
     @Override
     public void onStatus(String status, String ip, String error) {
@@ -130,6 +138,15 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
     }
 
     @Override
+    public void onSendPre(String ch, String bus, boolean pre) {
+        JSObject data = new JSObject();
+        data.put("ch",  ch);
+        data.put("bus", bus);
+        data.put("pre", pre);
+        notifyListeners("m32:sendPre", data);
+    }
+
+    @Override
     public void onBusLevel(String bus, double level, boolean on) {
         JSObject data = new JSObject();
         data.put("bus",   bus);
@@ -149,15 +166,21 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
 
     @Override
     public void onInputMeters(JSObject meters) {
+        long now = System.currentTimeMillis();
+        if (now - lastInputMeterEmit < METER_THROTTLE_MS) return;
+        lastInputMeterEmit = now;
         notifyListeners("m32:inputMeters", meters);
     }
 
     @Override
     public void onBusMeters(JSObject meters) {
+        long now = System.currentTimeMillis();
+        if (now - lastBusMeterEmit < METER_THROTTLE_MS) return;
+        lastBusMeterEmit = now;
         notifyListeners("m32:busMeters", meters);
     }
 
-    // ── helpers ───────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────
 
     private boolean checkConnected(PluginCall call) {
         if (m32 == null || !m32.isConnected()) {

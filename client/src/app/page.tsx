@@ -37,7 +37,7 @@ export default function HomePage() {
 
   const {
     m32Status, channelNames, busNames, busConfig,
-    sendLevels, busLevels, inputVu, busVu,
+    sendLevels, sendPre, busLevels, inputVu, busVu,
     connectM32, disconnectM32,
     setChannelSendLevel, setChannelSendOn, setBusLevel, setBusOn, queryBus,
   } = useM32(socket);
@@ -247,6 +247,7 @@ export default function HomePage() {
                   busNames={busNames}
                   busConfig={busConfig}
                   sendLevels={sendLevels}
+                  sendPre={sendPre}
                   busLevels={busLevels}
                   inputVu={inputVu}
                   busVu={busVu}
