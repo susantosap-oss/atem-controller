@@ -213,7 +213,6 @@ export default function HomePage() {
                 label="MIDAS M32R LIVE"
                 active={audioSubTab === 'm32'}
                 onClick={() => setAudioSubTab('m32')}
-                accent="purple"
               />
               {/* Lock button — kunci kembali tab Audio */}
               <button

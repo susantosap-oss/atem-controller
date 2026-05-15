@@ -323,7 +323,7 @@ function BusMasterStrip({
       {/* Mono / Stereo badge */}
       <span className={`text-[8px] font-bold uppercase rounded px-1 py-0.5
         ${mono
-          ? 'bg-purple-900/60 text-purple-300 border border-purple-700/50'
+          ? 'bg-amber-950/60 text-amber-400 border border-amber-800/50'
           : 'bg-blue-900/60 text-blue-300 border border-blue-700/50'}`}>
         {mono ? 'MONO' : 'STEREO'}
       </span>
@@ -378,7 +378,7 @@ function BusMasterStrip({
         {isOn ? 'ON' : 'OFF'}
       </button>
 
-      <div className="text-[8px] text-amber-700 tracking-wider text-center">BUS</div>
+      <div className="text-[8px] text-navy-500 tracking-wider text-center uppercase">BUS</div>
     </div>
   );
 }
@@ -490,11 +490,10 @@ export default function M32Mixer({
         <div className="flex items-center gap-1.5 shrink-0">
           <div className="flex gap-0.5">
             {[0,1,2].map(i => (
-              <div key={i} className="w-1 h-5 rounded-sm"
-                   style={{ background: ['#c084fc','#a855f7','#7c3aed'][i] }} />
+              <div key={i} className="w-1 h-5 rounded-sm bg-blue-600 opacity-80" />
             ))}
           </div>
-          <span className="text-sm font-bold tracking-wide text-purple-200">
+          <span className="text-sm font-bold tracking-wide text-navy-100">
             MIDAS M32R LIVE
           </span>
         </div>
@@ -508,7 +507,7 @@ export default function M32Mixer({
           placeholder="IP Address M32 (e.g. 192.168.1.10)"
           className="flex-1 min-w-0 bg-navy-800 border border-navy-600/60 rounded px-2 py-1
                      text-[11px] text-navy-100 placeholder-navy-600
-                     focus:outline-none focus:border-purple-600"
+                     focus:outline-none focus:border-blue-500"
         />
 
         {/* Connect / Disconnect button */}
@@ -527,8 +526,8 @@ export default function M32Mixer({
             disabled={!hasIP || isConnecting}
             className="shrink-0 px-2 py-1 rounded text-[10px] font-bold transition-colors
                        disabled:opacity-40 disabled:cursor-not-allowed
-                       bg-purple-700 text-white border border-purple-500/60
-                       hover:bg-purple-600"
+                       bg-blue-600 text-white border border-blue-500/60
+                       hover:bg-blue-500"
           >
             {isConnecting ? 'CONNECTING…' : 'CONNECT'}
           </button>
@@ -563,7 +562,7 @@ export default function M32Mixer({
               className={`shrink-0 rounded text-[9px] font-bold transition-colors
                 w-6 h-6 border
                 ${isActive
-                  ? 'bg-purple-700 text-white border-purple-500 shadow-[0_0_4px_#7c3aed]'
+                  ? 'bg-blue-600 text-white border-blue-500 shadow-[0_0_4px_rgba(37,99,235,0.6)]'
                   : 'bg-navy-800 text-navy-500 border-navy-700 hover:text-navy-300'}`}
             >
               {n}
@@ -571,7 +570,7 @@ export default function M32Mixer({
           );
         })}
         {/* Selected bus names label */}
-        <span className="text-[9px] text-purple-400 ml-2 shrink-0">
+        <span className="text-[9px] text-blue-400 ml-2 shrink-0">
           {sortedBuses.map(n => busLabel(n)).join(' + ')}
         </span>
       </div>
@@ -636,7 +635,7 @@ export default function M32Mixer({
 
         {/* Bus master strips — fixed right, one per selected bus */}
         {sortedBuses.length > 0 && (
-          <div className="flex border-l-2 border-purple-900/60 bg-purple-950/10
+          <div className="flex border-l-2 border-navy-700/60 bg-navy-900/30
                           shrink-0 overflow-x-auto gap-px">
             {sortedBuses.map(busNum => {
               const busKey = String(busNum).padStart(2, '0');
