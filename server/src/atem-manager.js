@@ -5,6 +5,9 @@
 const { Atem } = require('atem-connection');
 const { EventEmitter } = require('events');
 
+// Re-send startFairlightMixerSendLevels every 4 min — ATEM firmware has a ~5 min stream TTL.
+const LEVEL_STREAM_RENEW_MS = 4 * 60 * 1000;
+
 class AtemManager extends EventEmitter {
   constructor() {
     super();
@@ -12,6 +15,7 @@ class AtemManager extends EventEmitter {
     this._ip = null;
     this._status = 'disconnected'; // 'connecting' | 'connected' | 'disconnected' | 'error'
     this._reconnectTimer = null;
+    this._levelTimer = null;   // periodic Fairlight stream renewal
     this._state = null;
     this._levelAccum = {}; // accumulates stereo sub-channel levels per input index
     this._defaultApplied = false; // on first audioState build, non-Mic1 channels start silent
@@ -53,11 +57,19 @@ class AtemManager extends EventEmitter {
       const vs = this._buildVideoState();
       if (vs) this.emit('videoState', vs);
 
-      // Start Fairlight VU meter streaming
+      // Start Fairlight VU meter streaming + schedule periodic renewal
       if (this._isFairlight()) {
         this._atem.startFairlightMixerSendLevels().catch(e =>
           console.warn('[ATEM] startFairlightMixerSendLevels failed:', e?.message)
         );
+        clearInterval(this._levelTimer);
+        this._levelTimer = setInterval(() => {
+          if (this._isConnected() && this._isFairlight()) {
+            this._atem.startFairlightMixerSendLevels().catch(e =>
+              console.warn('[ATEM] Level stream renewal failed:', e?.message)
+            );
+          }
+        }, LEVEL_STREAM_RENEW_MS);
       }
     });
 
@@ -130,27 +142,33 @@ class AtemManager extends EventEmitter {
 
   async disconnect(clearIP = true) {
     clearTimeout(this._reconnectTimer);
+    clearInterval(this._levelTimer);
+    this._levelTimer = null;
     if (this._atem) {
       this._atem.removeAllListeners();
       try { await this._atem.disconnect(); } catch (_) {}
       this._atem = null;
     }
-    if (clearIP) this._ip = null;
+    if (clearIP) {
+      this._ip = null;
+      // Only reset blast-protection on manual disconnect — on auto-reconnect
+      // we keep _defaultApplied = true so ATEM's stored gains are sent as-is.
+      this._defaultApplied = false;
+    }
     this._state = null;
     this._levelAccum = {};
-    this._defaultApplied = false;
     this._setStatus('disconnected');
   }
 
   _scheduleReconnect() {
     clearTimeout(this._reconnectTimer);
     if (!this._ip) return;
-    console.log('[ATEM] Reconnecting in 5s...');
+    console.log('[ATEM] Reconnecting in 1.5s...');
     this._reconnectTimer = setTimeout(() => {
       if (this._status !== 'connected' && this._ip) {
         this.connect(this._ip);
       }
-    }, 5000);
+    }, 1500);
   }
 
   _setStatus(status, message = '') {
