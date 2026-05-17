@@ -31,15 +31,21 @@ export interface M32BusEntry {
 }
 
 export interface M32State {
-  status:       M32Status;
-  channelNames: Record<string, string>;            // '01'..'32'
-  busNames:     Record<string, string>;            // '01'..'16'
-  busConfig:    Record<string, { mono: boolean }>; // '01'..'16'
-  sendLevels:   Record<string, M32SendEntry>;      // 'ch:bus' key
-  sendPre:      Record<string, boolean>;           // 'ch:bus' key, true=pre-fader
-  busLevels:    Record<string, M32BusEntry>;       // '01'..'16'
-  inputVu:      Record<string, LevelData>;         // '01'..'32'
-  busVu:        Record<string, LevelData>;         // '01'..'16'
+  status:           M32Status;
+  channelNames:     Record<string, string>;            // '01'..'32'
+  busNames:         Record<string, string>;            // '01'..'16'
+  busConfig:        Record<string, { mono: boolean }>; // '01'..'16'
+  sendLevels:       Record<string, M32SendEntry>;      // 'ch:bus' key
+  sendPre:          Record<string, boolean>;           // 'ch:bus' key, true=pre-fader
+  busLevels:        Record<string, M32BusEntry>;       // '01'..'16'
+  inputVu:          Record<string, LevelData>;         // '01'..'32'
+  busVu:            Record<string, LevelData>;         // '01'..'16'
+  auxInNames:       Record<string, string>;            // '01'..'08'
+  fxRtnNames:       Record<string, string>;            // '01'..'04'
+  auxInSendLevels:  Record<string, M32SendEntry>;      // 'ch:bus' key
+  fxRtnSendLevels:  Record<string, M32SendEntry>;      // 'ch:bus' key
+  auxInVu:          Record<string, LevelData>;         // '01'..'08'
+  fxRtnVu:          Record<string, LevelData>;         // '01'..'04'
 }
 
 // Smoothing constants — linear amplitude domain (correct VU ballistics)
@@ -76,21 +82,33 @@ export function useM32(socket: Socket | null) {
   const [sendLevels, setSendLevels]     = useState<Record<string, M32SendEntry>>({});
   const [sendPre, setSendPre]           = useState<Record<string, boolean>>({});
   const [busLevels, setBusLevels]       = useState<Record<string, M32BusEntry>>({});
+  const [auxInNames, setAuxInNames]           = useState<Record<string, string>>({});
+  const [fxRtnNames, setFxRtnNames]           = useState<Record<string, string>>({});
+  const [auxInSendLevels, setAuxInSendLevels] = useState<Record<string, M32SendEntry>>({});
+  const [fxRtnSendLevels, setFxRtnSendLevels] = useState<Record<string, M32SendEntry>>({});
 
   // Raw meter refs (not smoothed) — dB values from server
-  const rawInputRef = useRef<Record<string, { left: number; right: number }>>({});
-  const rawBusRef   = useRef<Record<string, { left: number; right: number }>>({});
+  const rawInputRef  = useRef<Record<string, { left: number; right: number }>>({});
+  const rawBusRef    = useRef<Record<string, { left: number; right: number }>>({});
+  const rawAuxInRef  = useRef<Record<string, { left: number; right: number }>>({});
+  const rawFxRtnRef  = useRef<Record<string, { left: number; right: number }>>({});
 
   // Smoothed VU state
-  const smoothInputRef = useRef<Record<string, LevelData>>({});
-  const smoothBusRef   = useRef<Record<string, LevelData>>({});
-  const [inputVu, setInputVu] = useState<Record<string, LevelData>>({});
-  const [busVu,   setBusVu]   = useState<Record<string, LevelData>>({});
+  const smoothInputRef  = useRef<Record<string, LevelData>>({});
+  const smoothBusRef    = useRef<Record<string, LevelData>>({});
+  const smoothAuxInRef  = useRef<Record<string, LevelData>>({});
+  const smoothFxRtnRef  = useRef<Record<string, LevelData>>({});
+  const [inputVu,  setInputVu]  = useState<Record<string, LevelData>>({});
+  const [busVu,    setBusVu]    = useState<Record<string, LevelData>>({});
+  const [auxInVu,  setAuxInVu]  = useState<Record<string, LevelData>>({});
+  const [fxRtnVu,  setFxRtnVu]  = useState<Record<string, LevelData>>({});
   const rafRef = useRef<number>(0);
 
   // Peak hold tracking (separate from smoothed value)
-  const peakInputRef = useRef<Record<string, PeakState>>({});
-  const peakBusRef   = useRef<Record<string, PeakState>>({});
+  const peakInputRef  = useRef<Record<string, PeakState>>({});
+  const peakBusRef    = useRef<Record<string, PeakState>>({});
+  const peakAuxInRef  = useRef<Record<string, PeakState>>({});
+  const peakFxRtnRef  = useRef<Record<string, PeakState>>({});
 
   // ── RAF VU smooth loop ───────────────────────────────────
   useEffect(() => {
@@ -171,11 +189,71 @@ export function useM32(socket: Socket | null) {
         }
       }
 
+      // ── AuxIn smooth ──
+      const nextAuxIn = { ...smoothAuxInRef.current };
+      for (const [ch, raw] of Object.entries(rawAuxInRef.current)) {
+        const prev = nextAuxIn[ch];
+        const rawLinL  = toLinear(raw.left);
+        const rawLinR  = toLinear(raw.right);
+        const prevLinL = toLinear(prev?.left  ?? -90);
+        const prevLinR = toLinear(prev?.right ?? -90);
+        const coeffL = rawLinL > prevLinL ? VU_ATTACK : VU_RELEASE;
+        const coeffR = rawLinR > prevLinR ? VU_ATTACK : VU_RELEASE;
+        const nlLin  = prevLinL * coeffL + rawLinL * (1 - coeffL);
+        const nrLin  = prevLinR * coeffR + rawLinR * (1 - coeffR);
+        const nl = toDb(nlLin);
+        const nr = toDb(nrLin);
+        const pk = peakAuxInRef.current[ch] ?? { pl: -90, pr: -90, al: PEAK_HOLD_FRAMES, ar: PEAK_HOLD_FRAMES };
+        let { pl, pr, al, ar } = pk;
+        if (raw.left >= pl)  { pl = raw.left;  al = 0; }
+        else { al++; if (al > PEAK_HOLD_FRAMES) pl = Math.max(nl, pl - PEAK_DECAY_DB); }
+        if (raw.right >= pr) { pr = raw.right; ar = 0; }
+        else { ar++; if (ar > PEAK_HOLD_FRAMES) pr = Math.max(nr, pr - PEAK_DECAY_DB); }
+        peakAuxInRef.current[ch] = { pl, pr, al, ar };
+        if (!prev || Math.abs(nl - prev.left) > 0.05 || Math.abs(nr - prev.right) > 0.05 ||
+            Math.abs(pl - (prev.peakLeft ?? -90)) > 0.05 || Math.abs(pr - (prev.peakRight ?? -90)) > 0.05) {
+          nextAuxIn[ch] = { left: nl, right: nr, peakLeft: pl, peakRight: pr };
+          changed = true;
+        }
+      }
+
+      // ── FxRtn smooth ──
+      const nextFxRtn = { ...smoothFxRtnRef.current };
+      for (const [ch, raw] of Object.entries(rawFxRtnRef.current)) {
+        const prev = nextFxRtn[ch];
+        const rawLinL  = toLinear(raw.left);
+        const rawLinR  = toLinear(raw.right);
+        const prevLinL = toLinear(prev?.left  ?? -90);
+        const prevLinR = toLinear(prev?.right ?? -90);
+        const coeffL = rawLinL > prevLinL ? VU_ATTACK : VU_RELEASE;
+        const coeffR = rawLinR > prevLinR ? VU_ATTACK : VU_RELEASE;
+        const nlLin  = prevLinL * coeffL + rawLinL * (1 - coeffL);
+        const nrLin  = prevLinR * coeffR + rawLinR * (1 - coeffR);
+        const nl = toDb(nlLin);
+        const nr = toDb(nrLin);
+        const pk = peakFxRtnRef.current[ch] ?? { pl: -90, pr: -90, al: PEAK_HOLD_FRAMES, ar: PEAK_HOLD_FRAMES };
+        let { pl, pr, al, ar } = pk;
+        if (raw.left >= pl)  { pl = raw.left;  al = 0; }
+        else { al++; if (al > PEAK_HOLD_FRAMES) pl = Math.max(nl, pl - PEAK_DECAY_DB); }
+        if (raw.right >= pr) { pr = raw.right; ar = 0; }
+        else { ar++; if (ar > PEAK_HOLD_FRAMES) pr = Math.max(nr, pr - PEAK_DECAY_DB); }
+        peakFxRtnRef.current[ch] = { pl, pr, al, ar };
+        if (!prev || Math.abs(nl - prev.left) > 0.05 || Math.abs(nr - prev.right) > 0.05 ||
+            Math.abs(pl - (prev.peakLeft ?? -90)) > 0.05 || Math.abs(pr - (prev.peakRight ?? -90)) > 0.05) {
+          nextFxRtn[ch] = { left: nl, right: nr, peakLeft: pl, peakRight: pr };
+          changed = true;
+        }
+      }
+
       if (changed) {
-        smoothInputRef.current = nextInput;
-        smoothBusRef.current   = nextBus;
+        smoothInputRef.current  = nextInput;
+        smoothBusRef.current    = nextBus;
+        smoothAuxInRef.current  = nextAuxIn;
+        smoothFxRtnRef.current  = nextFxRtn;
         setInputVu(nextInput);
         setBusVu(nextBus);
+        setAuxInVu(nextAuxIn);
+        setFxRtnVu(nextFxRtn);
       }
 
       rafRef.current = requestAnimationFrame(loop);
@@ -221,6 +299,12 @@ export function useM32(socket: Socket | null) {
       await addL('m32:busMeters', (d: Record<string, { left: number; right: number }>) => {
         rawBusRef.current = { ...rawBusRef.current, ...d };
       });
+      await addL('m32:auxInMeters', (d: Record<string, { left: number; right: number }>) => {
+        rawAuxInRef.current = { ...rawAuxInRef.current, ...d };
+      });
+      await addL('m32:fxRtnMeters', (d: Record<string, { left: number; right: number }>) => {
+        rawFxRtnRef.current = { ...rawFxRtnRef.current, ...d };
+      });
     })();
 
     return () => { listeners.forEach(l => l.remove()); };
@@ -256,32 +340,67 @@ export function useM32(socket: Socket | null) {
     const onBusMeters = (d: Record<string, { left: number; right: number }>) => {
       rawBusRef.current = { ...rawBusRef.current, ...d };
     };
+    const onAuxInNames  = (d: Record<string, string>) => setAuxInNames(d);
+    const onFxRtnNames  = (d: Record<string, string>) => setFxRtnNames(d);
+    const onAuxInSendLevel = (d: { ch: string; bus: string; level: number; on: boolean }) => {
+      setAuxInSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+    };
+    const onAuxInSendOn = (d: { ch: string; bus: string; level: number; on: boolean }) => {
+      setAuxInSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+    };
+    const onFxRtnSendLevel = (d: { ch: string; bus: string; level: number; on: boolean }) => {
+      setFxRtnSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+    };
+    const onFxRtnSendOn = (d: { ch: string; bus: string; level: number; on: boolean }) => {
+      setFxRtnSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+    };
+    const onAuxInMeters = (d: Record<string, { left: number; right: number }>) => {
+      rawAuxInRef.current = { ...rawAuxInRef.current, ...d };
+    };
+    const onFxRtnMeters = (d: Record<string, { left: number; right: number }>) => {
+      rawFxRtnRef.current = { ...rawFxRtnRef.current, ...d };
+    };
 
-    socket.on('server:handshake', onHandshake);
-    socket.on('m32:status',       onStatus);
-    socket.on('m32:channelNames', onChannelNames);
-    socket.on('m32:busNames',     onBusNames);
-    socket.on('m32:busConfig',    onBusConfig);
-    socket.on('m32:sendLevel',    onSendLevel);
-    socket.on('m32:sendOn',       onSendOn);
-    // m32:sendPre is native-only; no server-side equivalent needed
-    socket.on('m32:busLevel',     onBusLevel);
-    socket.on('m32:busOn',        onBusOn);
-    socket.on('m32:inputMeters',  onInputMeters);
-    socket.on('m32:busMeters',    onBusMeters);
+    socket.on('server:handshake',    onHandshake);
+    socket.on('m32:status',          onStatus);
+    socket.on('m32:channelNames',    onChannelNames);
+    socket.on('m32:busNames',        onBusNames);
+    socket.on('m32:busConfig',       onBusConfig);
+    socket.on('m32:sendLevel',       onSendLevel);
+    socket.on('m32:sendOn',          onSendOn);
+    socket.on('m32:busLevel',        onBusLevel);
+    socket.on('m32:busOn',           onBusOn);
+    socket.on('m32:inputMeters',     onInputMeters);
+    socket.on('m32:busMeters',       onBusMeters);
+    socket.on('m32:auxInNames',      onAuxInNames);
+    socket.on('m32:fxRtnNames',      onFxRtnNames);
+    socket.on('m32:auxInSendLevel',  onAuxInSendLevel);
+    socket.on('m32:auxInSendOn',     onAuxInSendOn);
+    socket.on('m32:fxRtnSendLevel',  onFxRtnSendLevel);
+    socket.on('m32:fxRtnSendOn',     onFxRtnSendOn);
+    socket.on('m32:auxInMeters',     onAuxInMeters);
+    socket.on('m32:fxRtnMeters',     onFxRtnMeters);
 
     return () => {
-      socket.off('server:handshake', onHandshake);
-      socket.off('m32:status',       onStatus);
-      socket.off('m32:channelNames', onChannelNames);
-      socket.off('m32:busNames',     onBusNames);
-      socket.off('m32:busConfig',    onBusConfig);
-      socket.off('m32:sendLevel',    onSendLevel);
-      socket.off('m32:sendOn',       onSendOn);
-      socket.off('m32:busLevel',     onBusLevel);
-      socket.off('m32:busOn',        onBusOn);
-      socket.off('m32:inputMeters',  onInputMeters);
-      socket.off('m32:busMeters',    onBusMeters);
+      socket.off('server:handshake',   onHandshake);
+      socket.off('m32:status',         onStatus);
+      socket.off('m32:channelNames',   onChannelNames);
+      socket.off('m32:busNames',       onBusNames);
+      socket.off('m32:busConfig',      onBusConfig);
+      socket.off('m32:sendLevel',      onSendLevel);
+      socket.off('m32:sendOn',         onSendOn);
+      socket.off('m32:busLevel',       onBusLevel);
+      socket.off('m32:busOn',          onBusOn);
+      socket.off('m32:inputMeters',    onInputMeters);
+      socket.off('m32:busMeters',      onBusMeters);
+      socket.off('m32:auxInNames',     onAuxInNames);
+      socket.off('m32:fxRtnNames',     onFxRtnNames);
+      socket.off('m32:auxInSendLevel', onAuxInSendLevel);
+      socket.off('m32:auxInSendOn',    onAuxInSendOn);
+      socket.off('m32:fxRtnSendLevel', onFxRtnSendLevel);
+      socket.off('m32:fxRtnSendOn',    onFxRtnSendOn);
+      socket.off('m32:auxInMeters',    onAuxInMeters);
+      socket.off('m32:fxRtnMeters',    onFxRtnMeters);
     };
   }, [socket]);
 
@@ -360,6 +479,38 @@ export function useM32(socket: Socket | null) {
     }
   }, [socket]);
 
+  const setAuxInSendLevel = useCallback((ch: string, bus: string, level: number) => {
+    socket?.emit('m32:setAuxInSendLevel', { ch, bus, level });
+    setAuxInSendLevels(prev => ({
+      ...prev,
+      [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], level },
+    }));
+  }, [socket]);
+
+  const setAuxInSendOn = useCallback((ch: string, bus: string, on: boolean) => {
+    socket?.emit('m32:setAuxInSendOn', { ch, bus, on });
+    setAuxInSendLevels(prev => ({
+      ...prev,
+      [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], on },
+    }));
+  }, [socket]);
+
+  const setFxRtnSendLevel = useCallback((ch: string, bus: string, level: number) => {
+    socket?.emit('m32:setFxRtnSendLevel', { ch, bus, level });
+    setFxRtnSendLevels(prev => ({
+      ...prev,
+      [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], level },
+    }));
+  }, [socket]);
+
+  const setFxRtnSendOn = useCallback((ch: string, bus: string, on: boolean) => {
+    socket?.emit('m32:setFxRtnSendOn', { ch, bus, on });
+    setFxRtnSendLevels(prev => ({
+      ...prev,
+      [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], on },
+    }));
+  }, [socket]);
+
   return {
     m32Status,
     channelNames,
@@ -370,6 +521,12 @@ export function useM32(socket: Socket | null) {
     busLevels,
     inputVu,
     busVu,
+    auxInNames,
+    fxRtnNames,
+    auxInSendLevels,
+    fxRtnSendLevels,
+    auxInVu,
+    fxRtnVu,
     connectM32,
     disconnectM32,
     setChannelSendLevel,
@@ -377,5 +534,9 @@ export function useM32(socket: Socket | null) {
     setBusLevel,
     setBusOn,
     queryBus,
+    setAuxInSendLevel,
+    setAuxInSendOn,
+    setFxRtnSendLevel,
+    setFxRtnSendOn,
   };
 }

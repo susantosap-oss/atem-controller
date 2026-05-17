@@ -141,25 +141,33 @@ function linToDbFS(v) {
 
 // ── Meter blob parser ─────────────────────────────────────────
 // M32/X32 blob: 4-byte LE int32 (count) + count × LE float32
-// Stereo channels: paired L, R values
+// M32 may send mono (1 float/ch) or stereo pairs (2 floats/ch).
+// Auto-detect: if count >= numCh*2 → stereo pairs, else → mono.
 
 function parseMeterBlob(blob, numCh) {
   if (!blob || blob.length < 8) return null;
   try {
-    // Detect count prefix (LE int32)
     const countLE  = blob.readInt32LE(0);
     const expected = countLE * 4;
     const offset   = (expected > 0 && expected <= blob.length - 4) ? 4 : 0;
 
+    const stereo = countLE >= numCh * 2;
+    const stride = stereo ? 8 : 4;
+
     const result = {};
     for (let i = 0; i < numCh; i++) {
-      const lo = offset + i * 8;       // L float32
-      const ro = lo + 4;               // R float32
-      if (ro + 4 > blob.length) break;
+      const lo = offset + i * stride;
+      if (lo + 4 > blob.length) break;
+      const lv = blob.readFloatLE(lo);
+      let rv = lv;
+      if (stereo) {
+        const ro = lo + 4;
+        if (ro + 4 <= blob.length) rv = blob.readFloatLE(ro);
+      }
       const key = String(i + 1).padStart(2, '0');
       result[key] = {
-        left:  linToDbFS(blob.readFloatLE(lo)),
-        right: linToDbFS(blob.readFloatLE(ro)),
+        left:  linToDbFS(lv),
+        right: linToDbFS(rv),
       };
     }
     return Object.keys(result).length ? result : null;
@@ -178,11 +186,15 @@ class M32Manager extends EventEmitter {
     this.status   = 'disconnected';
 
     // Cached state (sent to newly connected clients)
-    this.channelNames = {};   // '01'..'32' → string
-    this.busNames     = {};   // '01'..'16' → string
-    this.busConfig    = {};   // '01'..'16' → { mono: bool }
-    this.sendLevels   = {};   // 'ch:bus'   → { level, on }
-    this.busLevels    = {};   // '01'..'16' → { level, on }
+    this.channelNames    = {};   // '01'..'32' → string
+    this.busNames        = {};   // '01'..'16' → string
+    this.busConfig       = {};   // '01'..'16' → { mono: bool }
+    this.sendLevels      = {};   // 'ch:bus'   → { level, on }
+    this.busLevels       = {};   // '01'..'16' → { level, on }
+    this.auxInNames      = {};   // '01'..'08' → string
+    this.fxRtnNames      = {};   // '01'..'04' → string
+    this.auxInSendLevels = {};   // 'ch:bus'   → { level, on }
+    this.fxRtnSendLevels = {};   // 'ch:bus'   → { level, on }
   }
 
   connect(ip) {
@@ -235,6 +247,7 @@ class M32Manager extends EventEmitter {
   _xremote()       { this._send('/xremote'); }
   _pollMeters()    {
     this._send('/meters', [{ type: 's', value: '/meters/1' }]);
+    this._send('/meters', [{ type: 's', value: '/meters/2' }]);
     this._send('/meters', [{ type: 's', value: '/meters/5' }]);
   }
 
@@ -242,6 +255,14 @@ class M32Manager extends EventEmitter {
     for (let i = 1; i <= 32; i++) {
       const ch = String(i).padStart(2, '0');
       this._send(`/ch/${ch}/config/name`);
+    }
+    for (let i = 1; i <= 8; i++) {
+      const ch = String(i).padStart(2, '0');
+      this._send(`/auxin/${ch}/config/name`);
+    }
+    for (let i = 1; i <= 4; i++) {
+      const ch = String(i).padStart(2, '0');
+      this._send(`/fxrtn/${ch}/config/name`);
     }
     for (let i = 1; i <= 16; i++) {
       const b = String(i).padStart(2, '0');
@@ -260,6 +281,16 @@ class M32Manager extends EventEmitter {
       const ch = String(i).padStart(2, '0');
       this._send(`/ch/${ch}/mix/${bus}/level`);
       this._send(`/ch/${ch}/mix/${bus}/on`);
+    }
+    for (let i = 1; i <= 8; i++) {
+      const ch = String(i).padStart(2, '0');
+      this._send(`/auxin/${ch}/mix/${bus}/level`);
+      this._send(`/auxin/${ch}/mix/${bus}/on`);
+    }
+    for (let i = 1; i <= 4; i++) {
+      const ch = String(i).padStart(2, '0');
+      this._send(`/fxrtn/${ch}/mix/${bus}/level`);
+      this._send(`/fxrtn/${ch}/mix/${bus}/on`);
     }
   }
 
@@ -299,6 +330,68 @@ class M32Manager extends EventEmitter {
       if (!this.busConfig[bus]) this.busConfig[bus] = { mono: false };
       this.busConfig[bus].mono = a0?.value === 1;
       this.emit('busConfig', { ...this.busConfig });
+      return;
+    }
+
+    // AuxIn name  /auxin/NN/config/name
+    const mAuxName = address.match(/^\/auxin\/(\d+)\/config\/name$/);
+    if (mAuxName) {
+      const ch = mAuxName[1];
+      this.auxInNames[ch] = (a0?.value || '').trim() || `AuxIn ${parseInt(ch)}`;
+      this.emit('auxInNames', { ...this.auxInNames });
+      return;
+    }
+
+    // FxRtn name  /fxrtn/NN/config/name
+    const mFxName = address.match(/^\/fxrtn\/(\d+)\/config\/name$/);
+    if (mFxName) {
+      const ch = mFxName[1];
+      this.fxRtnNames[ch] = (a0?.value || '').trim() || `FxRtn ${parseInt(ch)}`;
+      this.emit('fxRtnNames', { ...this.fxRtnNames });
+      return;
+    }
+
+    // AuxIn send level  /auxin/NN/mix/MM/level
+    const mAuxSendLvl = address.match(/^\/auxin\/(\d+)\/mix\/(\d+)\/level$/);
+    if (mAuxSendLvl) {
+      const [,ch,bus] = mAuxSendLvl;
+      const key = `${ch}:${bus}`;
+      if (!this.auxInSendLevels[key]) this.auxInSendLevels[key] = { level: 0.75, on: true };
+      this.auxInSendLevels[key].level = a0?.value ?? 0.75;
+      this.emit('auxInSendLevel', { ch, bus, ...this.auxInSendLevels[key] });
+      return;
+    }
+
+    // AuxIn send on  /auxin/NN/mix/MM/on
+    const mAuxSendOn = address.match(/^\/auxin\/(\d+)\/mix\/(\d+)\/on$/);
+    if (mAuxSendOn) {
+      const [,ch,bus] = mAuxSendOn;
+      const key = `${ch}:${bus}`;
+      if (!this.auxInSendLevels[key]) this.auxInSendLevels[key] = { level: 0.75, on: true };
+      this.auxInSendLevels[key].on = a0?.value === 1;
+      this.emit('auxInSendOn', { ch, bus, ...this.auxInSendLevels[key] });
+      return;
+    }
+
+    // FxRtn send level  /fxrtn/NN/mix/MM/level
+    const mFxSendLvl = address.match(/^\/fxrtn\/(\d+)\/mix\/(\d+)\/level$/);
+    if (mFxSendLvl) {
+      const [,ch,bus] = mFxSendLvl;
+      const key = `${ch}:${bus}`;
+      if (!this.fxRtnSendLevels[key]) this.fxRtnSendLevels[key] = { level: 0.75, on: true };
+      this.fxRtnSendLevels[key].level = a0?.value ?? 0.75;
+      this.emit('fxRtnSendLevel', { ch, bus, ...this.fxRtnSendLevels[key] });
+      return;
+    }
+
+    // FxRtn send on  /fxrtn/NN/mix/MM/on
+    const mFxSendOn = address.match(/^\/fxrtn\/(\d+)\/mix\/(\d+)\/on$/);
+    if (mFxSendOn) {
+      const [,ch,bus] = mFxSendOn;
+      const key = `${ch}:${bus}`;
+      if (!this.fxRtnSendLevels[key]) this.fxRtnSendLevels[key] = { level: 0.75, on: true };
+      this.fxRtnSendLevels[key].on = a0?.value === 1;
+      this.emit('fxRtnSendOn', { ch, bus, ...this.fxRtnSendLevels[key] });
       return;
     }
 
@@ -351,6 +444,26 @@ class M32Manager extends EventEmitter {
       return;
     }
 
+    // AuxIn + FxRtn meters  /meters/2 (8 AuxIn + 4 FxRtn = 12 channels)
+    if (address === '/meters/2' && a0?.type === 'blob') {
+      const m = parseMeterBlob(a0.value, 12);
+      if (m) {
+        const auxIn = {}, fxRtn = {};
+        for (let i = 1; i <= 8; i++) {
+          const key = String(i).padStart(2, '0');
+          if (m[key]) auxIn[key] = m[key];
+        }
+        for (let i = 1; i <= 4; i++) {
+          const srcKey = String(i + 8).padStart(2, '0');
+          const dstKey = String(i).padStart(2, '0');
+          if (m[srcKey]) fxRtn[dstKey] = m[srcKey];
+        }
+        if (Object.keys(auxIn).length)  this.emit('auxInMeters',  auxIn);
+        if (Object.keys(fxRtn).length)  this.emit('fxRtnMeters',  fxRtn);
+      }
+      return;
+    }
+
     // Bus meters  /meters/5
     if (address === '/meters/5' && a0?.type === 'blob') {
       const m = parseMeterBlob(a0.value, 16);
@@ -384,6 +497,40 @@ class M32Manager extends EventEmitter {
     if (!this.busLevels[bus]) this.busLevels[bus] = { level: 0.75, on: true };
     this.busLevels[bus].level = clamped;
     this.emit('busLevel', { bus, ...this.busLevels[bus] });
+  }
+
+  setAuxInSendLevel(ch, bus, level) {
+    const clamped = Math.min(1, Math.max(0, level));
+    this._send(`/auxin/${ch}/mix/${bus}/level`, [{ type: 'f', value: clamped }]);
+    const key = `${ch}:${bus}`;
+    if (!this.auxInSendLevels[key]) this.auxInSendLevels[key] = { level: 0.75, on: true };
+    this.auxInSendLevels[key].level = clamped;
+    this.emit('auxInSendLevel', { ch, bus, ...this.auxInSendLevels[key] });
+  }
+
+  setAuxInSendOn(ch, bus, on) {
+    this._send(`/auxin/${ch}/mix/${bus}/on`, [{ type: 'i', value: on ? 1 : 0 }]);
+    const key = `${ch}:${bus}`;
+    if (!this.auxInSendLevels[key]) this.auxInSendLevels[key] = { level: 0.75, on: true };
+    this.auxInSendLevels[key].on = !!on;
+    this.emit('auxInSendOn', { ch, bus, ...this.auxInSendLevels[key] });
+  }
+
+  setFxRtnSendLevel(ch, bus, level) {
+    const clamped = Math.min(1, Math.max(0, level));
+    this._send(`/fxrtn/${ch}/mix/${bus}/level`, [{ type: 'f', value: clamped }]);
+    const key = `${ch}:${bus}`;
+    if (!this.fxRtnSendLevels[key]) this.fxRtnSendLevels[key] = { level: 0.75, on: true };
+    this.fxRtnSendLevels[key].level = clamped;
+    this.emit('fxRtnSendLevel', { ch, bus, ...this.fxRtnSendLevels[key] });
+  }
+
+  setFxRtnSendOn(ch, bus, on) {
+    this._send(`/fxrtn/${ch}/mix/${bus}/on`, [{ type: 'i', value: on ? 1 : 0 }]);
+    const key = `${ch}:${bus}`;
+    if (!this.fxRtnSendLevels[key]) this.fxRtnSendLevels[key] = { level: 0.75, on: true };
+    this.fxRtnSendLevels[key].on = !!on;
+    this.emit('fxRtnSendOn', { ch, bus, ...this.fxRtnSendLevels[key] });
   }
 
   setBusOn(bus, on) {

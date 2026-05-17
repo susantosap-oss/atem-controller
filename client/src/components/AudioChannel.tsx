@@ -27,7 +27,7 @@ interface AudioChannelProps {
   onBalanceChange?: (index: string | number, balance: number) => void;
 }
 
-const FADER_HEIGHT = 160; // px — track height
+const FADER_HEIGHT = 110; // px — track height (compact to fit ON/AFV/OFF on small screens)
 const PAN_WIDTH    = 52;  // px — pan drag width
 
 export default function AudioChannel({

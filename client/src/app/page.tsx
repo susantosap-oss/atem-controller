@@ -39,8 +39,10 @@ export default function HomePage() {
   const {
     m32Status, channelNames, busNames, busConfig,
     sendLevels, sendPre, busLevels, inputVu, busVu,
+    auxInNames, fxRtnNames, auxInSendLevels, fxRtnSendLevels, auxInVu, fxRtnVu,
     connectM32, disconnectM32,
     setChannelSendLevel, setChannelSendOn, setBusLevel, setBusOn, queryBus,
+    setAuxInSendLevel, setAuxInSendOn, setFxRtnSendLevel, setFxRtnSendOn,
   } = useM32(socket);
 
   const [activeTab,      setActiveTab]      = useState<ActiveTab>('video');
@@ -252,6 +254,12 @@ export default function HomePage() {
                   busLevels={busLevels}
                   inputVu={inputVu}
                   busVu={busVu}
+                  auxInNames={auxInNames}
+                  fxRtnNames={fxRtnNames}
+                  auxInSendLevels={auxInSendLevels}
+                  fxRtnSendLevels={fxRtnSendLevels}
+                  auxInVu={auxInVu}
+                  fxRtnVu={fxRtnVu}
                   serverConnected={Capacitor.isNativePlatform() || socketStatus === 'connected'}
                   onConnect={connectM32}
                   onDisconnect={disconnectM32}
@@ -260,6 +268,10 @@ export default function HomePage() {
                   onBusLevel={setBusLevel}
                   onBusOn={setBusOn}
                   onQueryBus={queryBus}
+                  onAuxInSendLevel={setAuxInSendLevel}
+                  onAuxInSendOn={setAuxInSendOn}
+                  onFxRtnSendLevel={setFxRtnSendLevel}
+                  onFxRtnSendOn={setFxRtnSendOn}
                 />
               )}
             </div>

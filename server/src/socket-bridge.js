@@ -68,17 +68,25 @@ function start(port) {
   });
 
   // ── M32 events → broadcast ─────────────────────────────────
-  m32Manager.on('status',       (d) => io.emit('m32:status',       d));
-  m32Manager.on('channelNames', (d) => io.emit('m32:channelNames', d));
-  m32Manager.on('busNames',     (d) => io.emit('m32:busNames',     d));
-  m32Manager.on('busConfig',    (d) => io.emit('m32:busConfig',    d));
-  m32Manager.on('sendLevel',    (d) => io.emit('m32:sendLevel',    d));
-  m32Manager.on('sendOn',       (d) => io.emit('m32:sendOn',       d));
-  m32Manager.on('busLevel',     (d) => io.emit('m32:busLevel',     d));
-  m32Manager.on('busOn',        (d) => io.emit('m32:busOn',        d));
+  m32Manager.on('status',           (d) => io.emit('m32:status',           d));
+  m32Manager.on('channelNames',     (d) => io.emit('m32:channelNames',     d));
+  m32Manager.on('busNames',         (d) => io.emit('m32:busNames',         d));
+  m32Manager.on('busConfig',        (d) => io.emit('m32:busConfig',        d));
+  m32Manager.on('sendLevel',        (d) => io.emit('m32:sendLevel',        d));
+  m32Manager.on('sendOn',           (d) => io.emit('m32:sendOn',           d));
+  m32Manager.on('busLevel',         (d) => io.emit('m32:busLevel',         d));
+  m32Manager.on('busOn',            (d) => io.emit('m32:busOn',            d));
+  m32Manager.on('auxInNames',       (d) => io.emit('m32:auxInNames',       d));
+  m32Manager.on('fxRtnNames',       (d) => io.emit('m32:fxRtnNames',       d));
+  m32Manager.on('auxInSendLevel',   (d) => io.emit('m32:auxInSendLevel',   d));
+  m32Manager.on('auxInSendOn',      (d) => io.emit('m32:auxInSendOn',      d));
+  m32Manager.on('fxRtnSendLevel',   (d) => io.emit('m32:fxRtnSendLevel',   d));
+  m32Manager.on('fxRtnSendOn',      (d) => io.emit('m32:fxRtnSendOn',      d));
   // volatile: drop stale meter frames if socket buffer is busy (prevents latency buildup)
   m32Manager.on('inputMeters',  (d) => io.volatile.emit('m32:inputMeters',  d));
   m32Manager.on('busMeters',    (d) => io.volatile.emit('m32:busMeters',    d));
+  m32Manager.on('auxInMeters',  (d) => io.volatile.emit('m32:auxInMeters',  d));
+  m32Manager.on('fxRtnMeters',  (d) => io.volatile.emit('m32:fxRtnMeters',  d));
 
   // ── Client connection ─────────────────────────────────────
 
@@ -111,6 +119,18 @@ function start(port) {
       for (const [key, data] of Object.entries(m32Manager.sendLevels)) {
         const [ch, bus] = key.split(':');
         socket.emit('m32:sendLevel', { ch, bus, ...data });
+      }
+      if (Object.keys(m32Manager.auxInNames).length)
+        socket.emit('m32:auxInNames', m32Manager.auxInNames);
+      if (Object.keys(m32Manager.fxRtnNames).length)
+        socket.emit('m32:fxRtnNames', m32Manager.fxRtnNames);
+      for (const [key, data] of Object.entries(m32Manager.auxInSendLevels)) {
+        const [ch, bus] = key.split(':');
+        socket.emit('m32:auxInSendLevel', { ch, bus, ...data });
+      }
+      for (const [key, data] of Object.entries(m32Manager.fxRtnSendLevels)) {
+        const [ch, bus] = key.split(':');
+        socket.emit('m32:fxRtnSendLevel', { ch, bus, ...data });
       }
     }
 
@@ -236,6 +256,22 @@ function start(port) {
 
     socket.on('m32:queryBus', ({ bus }) => {
       m32Manager.queryBus(bus);
+    });
+
+    socket.on('m32:setAuxInSendLevel', ({ ch, bus, level }) => {
+      m32Manager.setAuxInSendLevel(ch, bus, level);
+    });
+
+    socket.on('m32:setAuxInSendOn', ({ ch, bus, on }) => {
+      m32Manager.setAuxInSendOn(ch, bus, on);
+    });
+
+    socket.on('m32:setFxRtnSendLevel', ({ ch, bus, level }) => {
+      m32Manager.setFxRtnSendLevel(ch, bus, level);
+    });
+
+    socket.on('m32:setFxRtnSendOn', ({ ch, bus, on }) => {
+      m32Manager.setFxRtnSendOn(ch, bus, on);
     });
 
     socket.on('disconnect', () => {

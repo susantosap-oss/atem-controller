@@ -64,14 +64,24 @@ interface M32MixerProps {
   busLevels:      Record<string, M32BusEntry>;
   inputVu:        Record<string, LevelData>;
   busVu:          Record<string, LevelData>;
+  auxInNames:     Record<string, string>;
+  fxRtnNames:     Record<string, string>;
+  auxInSendLevels: Record<string, M32SendEntry>;
+  fxRtnSendLevels: Record<string, M32SendEntry>;
+  auxInVu:        Record<string, LevelData>;
+  fxRtnVu:        Record<string, LevelData>;
   serverConnected: boolean;
   onConnect:      (ip: string) => void;
   onDisconnect:   () => void;
-  onChannelSendLevel: (ch: string, bus: string, level: number) => void;
-  onChannelSendOn:    (ch: string, bus: string, on: boolean) => void;
+  onChannelSendLevel:  (ch: string, bus: string, level: number) => void;
+  onChannelSendOn:     (ch: string, bus: string, on: boolean) => void;
   onBusLevel:     (bus: string, level: number) => void;
   onBusOn:        (bus: string, on: boolean) => void;
   onQueryBus:     (busNum: number) => void;
+  onAuxInSendLevel:    (ch: string, bus: string, level: number) => void;
+  onAuxInSendOn:       (ch: string, bus: string, on: boolean) => void;
+  onFxRtnSendLevel:    (ch: string, bus: string, level: number) => void;
+  onFxRtnSendOn:       (ch: string, bus: string, on: boolean) => void;
 }
 
 // ── Constants ─────────────────────────────────────────────────
@@ -82,7 +92,9 @@ const LS_KEY      = 'm32ip';
 const LS_BUSES    = 'm32buses';
 
 const DEFAULT_BUSES = new Set([5, 6]);
-const CH_KEYS = Array.from({ length: 32 }, (_, i) => String(i + 1).padStart(2, '0'));
+const CH_KEYS     = Array.from({ length: 32 }, (_, i) => String(i + 1).padStart(2, '0'));
+const AUXIN_KEYS  = Array.from({ length:  8 }, (_, i) => String(i + 1).padStart(2, '0'));
+const FXRTN_KEYS  = Array.from({ length:  4 }, (_, i) => String(i + 1).padStart(2, '0'));
 const BUS_NUMS = Array.from({ length: 16 }, (_, i) => i + 1);
 
 // ── Send fader (compact vertical, one per bus) ────────────────
@@ -411,6 +423,12 @@ export default function M32Mixer({
   busLevels,
   inputVu,
   busVu,
+  auxInNames,
+  fxRtnNames,
+  auxInSendLevels,
+  fxRtnSendLevels,
+  auxInVu,
+  fxRtnVu,
   serverConnected,
   onConnect,
   onDisconnect,
@@ -419,6 +437,10 @@ export default function M32Mixer({
   onBusLevel,
   onBusOn,
   onQueryBus,
+  onAuxInSendLevel,
+  onAuxInSendOn,
+  onFxRtnSendLevel,
+  onFxRtnSendOn,
 }: M32MixerProps) {
 
   // ── IP persistence ────────────────────────────────────────
@@ -626,26 +648,76 @@ export default function M32Mixer({
               </span>
             </div>
 
-            {/* Selected bus column labels (top) */}
-            <div className="flex flex-col">
-              {/* Bus header per channel: rendered inline in strip */}
-              {/* Actual channel strips */}
-              <div className="flex h-full">
-                {CH_KEYS.map(chKey => (
-                  <M32ChannelStrip
-                    key={chKey}
-                    chKey={chKey}
-                    name={channelNames[chKey] || `CH ${parseInt(chKey)}`}
-                    selectedBuses={sortedBuses}
-                    sendLevels={sendLevels}
-                    sendPre={sendPre}
-                    vu={inputVu[chKey]}
-                    disabled={disabled}
-                    onSendLevel={onChannelSendLevel}
-                    onSendOn={onChannelSendOn}
-                  />
-                ))}
-              </div>
+            {/* Input channel strips (CH 1-32) */}
+            <div className="flex h-full">
+              {CH_KEYS.map(chKey => (
+                <M32ChannelStrip
+                  key={chKey}
+                  chKey={chKey}
+                  name={channelNames[chKey] || `CH ${parseInt(chKey)}`}
+                  selectedBuses={sortedBuses}
+                  sendLevels={sendLevels}
+                  sendPre={sendPre}
+                  vu={inputVu[chKey]}
+                  disabled={disabled}
+                  onSendLevel={onChannelSendLevel}
+                  onSendOn={onChannelSendOn}
+                />
+              ))}
+            </div>
+
+            {/* Divider + AuxIn label */}
+            <div className="flex flex-col justify-center px-1.5 py-3 shrink-0
+                            border-l-2 border-navy-600/60">
+              <span className="text-[9px] text-blue-500 uppercase tracking-widest"
+                    style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                Aux In
+              </span>
+            </div>
+
+            {/* AuxIn strips (AuxIn 1-8) */}
+            <div className="flex h-full">
+              {AUXIN_KEYS.map(chKey => (
+                <M32ChannelStrip
+                  key={`auxin-${chKey}`}
+                  chKey={chKey}
+                  name={auxInNames[chKey] || `AuxIn ${parseInt(chKey)}`}
+                  selectedBuses={sortedBuses}
+                  sendLevels={auxInSendLevels}
+                  sendPre={{}}
+                  vu={auxInVu[chKey]}
+                  disabled={disabled}
+                  onSendLevel={onAuxInSendLevel}
+                  onSendOn={onAuxInSendOn}
+                />
+              ))}
+            </div>
+
+            {/* Divider + FxRtn label */}
+            <div className="flex flex-col justify-center px-1.5 py-3 shrink-0
+                            border-l-2 border-navy-600/60">
+              <span className="text-[9px] text-amber-500 uppercase tracking-widest"
+                    style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                Fx Rtn
+              </span>
+            </div>
+
+            {/* FxRtn strips (FxRtn 1-4) */}
+            <div className="flex h-full">
+              {FXRTN_KEYS.map(chKey => (
+                <M32ChannelStrip
+                  key={`fxrtn-${chKey}`}
+                  chKey={chKey}
+                  name={fxRtnNames[chKey] || `FxRtn ${parseInt(chKey)}`}
+                  selectedBuses={sortedBuses}
+                  sendLevels={fxRtnSendLevels}
+                  sendPre={{}}
+                  vu={fxRtnVu[chKey]}
+                  disabled={disabled}
+                  onSendLevel={onFxRtnSendLevel}
+                  onSendOn={onFxRtnSendOn}
+                />
+              ))}
             </div>
           </div>
         </div>

@@ -124,6 +124,7 @@ class AtemManager extends EventEmitter {
     this._atem.on('error', (err) => {
       console.error('[ATEM] Error:', err.message);
       this._setStatus('error', err.message);
+      this._scheduleReconnect();
     });
 
     // Connection timeout: 10s
@@ -240,10 +241,11 @@ class AtemManager extends EventEmitter {
         // On first connect, non-Mic1 channels default to silent so no accidental audio blast.
         // After _defaultApplied is set, all subsequent state updates use actual ATEM values.
         const isMic1 = idx === '1301';
+        const useActual = isMic1 || this._defaultApplied;
         channels[idx] = {
-          gain:      (isMic1 || this._defaultApplied) ? gainDb : -60,
+          gain:      useActual ? gainDb : -60,
           balance:   (props.balance  ?? 0) / 200,
-          mixOption: props.mixOption ?? 0,
+          mixOption: useActual ? (props.mixOption ?? 0) : 0,  // 0 = MixOption.Off
           label:     this._getChannelLabel(Number(idx)),
         };
       }
