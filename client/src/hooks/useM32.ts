@@ -41,7 +41,23 @@ export interface M32State {
   busVu:        Record<string, LevelData>;      // '01'..'16'
 }
 
-const VU_SMOOTH = 0.3;
+// Smoothing constants — linear amplitude domain (correct VU ballistics)
+const VU_ATTACK  = 0.05;   // fast attack:  ~95% of target in 2–3 frames
+const VU_RELEASE = 0.55;   // slow release: ~300 ms at 60 fps
+
+// Peak hold: 1.5 s then decays at 12 dB/s
+const PEAK_HOLD_FRAMES = 90;
+const PEAK_DECAY_DB    = 0.2;   // dB per frame after hold
+
+// dB ↔ linear helpers for correct amplitude smoothing
+function toLinear(db: number): number {
+  return db <= -90 ? 0 : Math.pow(10, db / 20);
+}
+function toDb(lin: number): number {
+  return lin <= 0 ? -90 : Math.max(-90, 20 * Math.log10(lin));
+}
+
+interface PeakState { pl: number; pr: number; al: number; ar: number }
 
 const DEFAULT_CHANNEL_NAMES: Record<string, string> = {};
 for (let i = 1; i <= 32; i++)
@@ -59,7 +75,7 @@ export function useM32(socket: Socket | null) {
   const [sendLevels, setSendLevels]     = useState<Record<string, M32SendEntry>>({});
   const [busLevels, setBusLevels]       = useState<Record<string, M32BusEntry>>({});
 
-  // Raw meter refs (not smoothed)
+  // Raw meter refs (not smoothed) — dB values from server
   const rawInputRef = useRef<Record<string, { left: number; right: number }>>({});
   const rawBusRef   = useRef<Record<string, { left: number; right: number }>>({});
 
@@ -70,6 +86,10 @@ export function useM32(socket: Socket | null) {
   const [busVu,   setBusVu]   = useState<Record<string, LevelData>>({});
   const rafRef = useRef<number>(0);
 
+  // Peak hold tracking (separate from smoothed value)
+  const peakInputRef = useRef<Record<string, PeakState>>({});
+  const peakBusRef   = useRef<Record<string, PeakState>>({});
+
   // ── RAF VU smooth loop ───────────────────────────────────
   useEffect(() => {
     const loop = () => {
@@ -78,11 +98,36 @@ export function useM32(socket: Socket | null) {
       const nextInput = { ...smoothInputRef.current };
       for (const [ch, raw] of Object.entries(rawInputRef.current)) {
         const prev = nextInput[ch];
-        const nl = (prev?.left  ?? raw.left)  * VU_SMOOTH + raw.left  * (1 - VU_SMOOTH);
-        const nr = (prev?.right ?? raw.right) * VU_SMOOTH + raw.right * (1 - VU_SMOOTH);
-        const pl = Math.max(prev?.peakLeft  ?? nl, raw.left);
-        const pr = Math.max(prev?.peakRight ?? nr, raw.right);
-        if (!prev || Math.abs(nl - prev.left) > 0.1 || Math.abs(nr - prev.right) > 0.1) {
+
+        // Smooth in linear amplitude domain for accurate VU ballistics
+        const rawLinL  = toLinear(raw.left);
+        const rawLinR  = toLinear(raw.right);
+        const prevLinL = toLinear(prev?.left  ?? -90);
+        const prevLinR = toLinear(prev?.right ?? -90);
+
+        const coeffL = rawLinL > prevLinL ? VU_ATTACK : VU_RELEASE;
+        const coeffR = rawLinR > prevLinR ? VU_ATTACK : VU_RELEASE;
+        const nlLin  = prevLinL * coeffL + rawLinL * (1 - coeffL);
+        const nrLin  = prevLinR * coeffR + rawLinR * (1 - coeffR);
+        const nl = toDb(nlLin);
+        const nr = toDb(nrLin);
+
+        // Peak hold with timed decay
+        const pk = peakInputRef.current[ch] ?? { pl: -90, pr: -90, al: PEAK_HOLD_FRAMES, ar: PEAK_HOLD_FRAMES };
+        let { pl, pr, al, ar } = pk;
+
+        if (raw.left >= pl)  { pl = raw.left;  al = 0; }
+        else { al++; if (al > PEAK_HOLD_FRAMES) pl = Math.max(nl, pl - PEAK_DECAY_DB); }
+        if (raw.right >= pr) { pr = raw.right; ar = 0; }
+        else { ar++; if (ar > PEAK_HOLD_FRAMES) pr = Math.max(nr, pr - PEAK_DECAY_DB); }
+        peakInputRef.current[ch] = { pl, pr, al, ar };
+
+        if (
+          !prev ||
+          Math.abs(nl - prev.left)  > 0.05 || Math.abs(nr - prev.right) > 0.05 ||
+          Math.abs(pl - (prev.peakLeft  ?? -90)) > 0.05 ||
+          Math.abs(pr - (prev.peakRight ?? -90)) > 0.05
+        ) {
           nextInput[ch] = { left: nl, right: nr, peakLeft: pl, peakRight: pr };
           changed = true;
         }
@@ -91,11 +136,34 @@ export function useM32(socket: Socket | null) {
       const nextBus = { ...smoothBusRef.current };
       for (const [b, raw] of Object.entries(rawBusRef.current)) {
         const prev = nextBus[b];
-        const nl = (prev?.left  ?? raw.left)  * VU_SMOOTH + raw.left  * (1 - VU_SMOOTH);
-        const nr = (prev?.right ?? raw.right) * VU_SMOOTH + raw.right * (1 - VU_SMOOTH);
-        const pl = Math.max(prev?.peakLeft  ?? nl, raw.left);
-        const pr = Math.max(prev?.peakRight ?? nr, raw.right);
-        if (!prev || Math.abs(nl - prev.left) > 0.1 || Math.abs(nr - prev.right) > 0.1) {
+
+        const rawLinL  = toLinear(raw.left);
+        const rawLinR  = toLinear(raw.right);
+        const prevLinL = toLinear(prev?.left  ?? -90);
+        const prevLinR = toLinear(prev?.right ?? -90);
+
+        const coeffL = rawLinL > prevLinL ? VU_ATTACK : VU_RELEASE;
+        const coeffR = rawLinR > prevLinR ? VU_ATTACK : VU_RELEASE;
+        const nlLin  = prevLinL * coeffL + rawLinL * (1 - coeffL);
+        const nrLin  = prevLinR * coeffR + rawLinR * (1 - coeffR);
+        const nl = toDb(nlLin);
+        const nr = toDb(nrLin);
+
+        const pk = peakBusRef.current[b] ?? { pl: -90, pr: -90, al: PEAK_HOLD_FRAMES, ar: PEAK_HOLD_FRAMES };
+        let { pl, pr, al, ar } = pk;
+
+        if (raw.left >= pl)  { pl = raw.left;  al = 0; }
+        else { al++; if (al > PEAK_HOLD_FRAMES) pl = Math.max(nl, pl - PEAK_DECAY_DB); }
+        if (raw.right >= pr) { pr = raw.right; ar = 0; }
+        else { ar++; if (ar > PEAK_HOLD_FRAMES) pr = Math.max(nr, pr - PEAK_DECAY_DB); }
+        peakBusRef.current[b] = { pl, pr, al, ar };
+
+        if (
+          !prev ||
+          Math.abs(nl - prev.left)  > 0.05 || Math.abs(nr - prev.right) > 0.05 ||
+          Math.abs(pl - (prev.peakLeft  ?? -90)) > 0.05 ||
+          Math.abs(pr - (prev.peakRight ?? -90)) > 0.05
+        ) {
           nextBus[b] = { left: nl, right: nr, peakLeft: pl, peakRight: pr };
           changed = true;
         }

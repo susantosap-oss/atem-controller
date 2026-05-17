@@ -608,7 +608,7 @@ export default function M32Mixer({
         {/* Bus master strips — fixed right, one per selected bus */}
         {sortedBuses.length > 0 && (
           <div className="flex border-l-2 border-purple-900/60 bg-purple-950/10
-                          shrink-0 overflow-x-auto gap-px">
+                          shrink-0 overflow-x-auto overflow-y-auto h-full gap-px">
             {sortedBuses.map(busNum => {
               const busKey = String(busNum).padStart(2, '0');
               const entry  = busLevels[busKey] ?? { level: 0.75, on: true };

@@ -76,8 +76,9 @@ function start(port) {
   m32Manager.on('sendOn',       (d) => io.emit('m32:sendOn',       d));
   m32Manager.on('busLevel',     (d) => io.emit('m32:busLevel',     d));
   m32Manager.on('busOn',        (d) => io.emit('m32:busOn',        d));
-  m32Manager.on('inputMeters',  (d) => io.emit('m32:inputMeters',  d));
-  m32Manager.on('busMeters',    (d) => io.emit('m32:busMeters',    d));
+  // volatile: drop stale meter frames if socket buffer is busy (prevents latency buildup)
+  m32Manager.on('inputMeters',  (d) => io.volatile.emit('m32:inputMeters',  d));
+  m32Manager.on('busMeters',    (d) => io.volatile.emit('m32:busMeters',    d));
 
   // ── Client connection ─────────────────────────────────────
 
