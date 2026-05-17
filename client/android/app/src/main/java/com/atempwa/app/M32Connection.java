@@ -438,7 +438,9 @@ public class M32Connection {
     }
 
     // ── Meter blob parser ─────────────────────────────────────
-    // Blob: 4-byte LE int32 count + count × LE float32, stereo L/R pairs
+    // Blob: 4-byte LE int32 count + count × LE float32
+    // M32 may send mono (1 float/ch) or stereo pairs (2 floats/ch).
+    // Detect by comparing countLE to numCh: if count >= numCh*2 → stereo, else → mono.
 
     private static JSObject parseMeterBlob(byte[] blob, int numCh) {
         if (blob == null || blob.length < 8) return null;
@@ -447,13 +449,25 @@ public class M32Connection {
             int expected = countLE * 4;
             int offset   = (expected > 0 && expected <= blob.length - 4) ? 4 : 0;
 
+            // Mono: 1 float per channel (countLE == numCh or countLE < numCh*2)
+            // Stereo: 2 floats per channel (L + R pair)
+            boolean stereo = countLE >= numCh * 2;
+            int stride = stereo ? 8 : 4;
+
+            Log.d(TAG, "parseMeterBlob: blobLen=" + blob.length + " countLE=" + countLE
+                    + " numCh=" + numCh + " stereo=" + stereo + " offset=" + offset);
+
             JSObject result = new JSObject();
             for (int i = 0; i < numCh; i++) {
-                int lo = offset + i * 8;
-                int ro = lo + 4;
-                if (ro + 4 > blob.length) break;
-                float    lv  = ByteBuffer.wrap(blob, lo, 4).order(ByteOrder.LITTLE_ENDIAN).getFloat();
-                float    rv  = ByteBuffer.wrap(blob, ro, 4).order(ByteOrder.LITTLE_ENDIAN).getFloat();
+                int lo = offset + i * stride;
+                if (lo + 4 > blob.length) break;
+                float lv = ByteBuffer.wrap(blob, lo, 4).order(ByteOrder.LITTLE_ENDIAN).getFloat();
+                float rv = lv;
+                if (stereo) {
+                    int ro = lo + 4;
+                    if (ro + 4 <= blob.length)
+                        rv = ByteBuffer.wrap(blob, ro, 4).order(ByteOrder.LITTLE_ENDIAN).getFloat();
+                }
                 String   key = String.format("%02d", i + 1);
                 JSObject ch  = new JSObject();
                 ch.put("left",  linToDbFS(lv));

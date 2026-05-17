@@ -6,6 +6,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import FairlightMixer  from '@/components/FairlightMixer';
 import M32Mixer        from '@/components/M32Mixer';
 import MediaPlayer     from '@/components/MediaPlayer';
@@ -250,7 +251,7 @@ export default function HomePage() {
                   busLevels={busLevels}
                   inputVu={inputVu}
                   busVu={busVu}
-                  serverConnected={socketStatus === 'connected'}
+                  serverConnected={Capacitor.isNativePlatform() || socketStatus === 'connected'}
                   onConnect={connectM32}
                   onDisconnect={disconnectM32}
                   onChannelSendLevel={setChannelSendLevel}
