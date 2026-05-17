@@ -213,7 +213,7 @@ export default function HomePage() {
                 label="MIDAS M32R LIVE"
                 active={audioSubTab === 'm32'}
                 onClick={() => setAudioSubTab('m32')}
-                accent="purple"
+                accent="navy"
               />
               {/* Lock button — kunci kembali tab Audio */}
               <button
@@ -320,10 +320,10 @@ function AudioSubTabButton({
   label: string;
   active: boolean;
   onClick: () => void;
-  accent?: 'blue' | 'purple';
+  accent?: 'blue' | 'navy';
 }) {
-  const activeColor = accent === 'purple'
-    ? 'text-purple-400 border-b-2 border-purple-500 bg-navy-800/60'
+  const activeColor = accent === 'navy'
+    ? 'text-navy-400 border-b-2 border-navy-500 bg-navy-800/60'
     : 'text-blue-400 border-b-2 border-blue-500 bg-navy-800/60';
   return (
     <button

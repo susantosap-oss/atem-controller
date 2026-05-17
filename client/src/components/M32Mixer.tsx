@@ -76,10 +76,10 @@ interface M32MixerProps {
 // ── Constants ─────────────────────────────────────────────────
 
 const FADER_H    = 120;   // px — send fader track height
-const BUS_FADER_H = 140;  // px — bus master fader height
+const BUS_FADER_H = 120;  // px — bus master fader height (same as send fader)
 const LS_KEY     = 'm32ip';
 
-const DEFAULT_BUSES = new Set([7, 8]);
+const DEFAULT_BUSES = new Set([5, 6]);
 const CH_KEYS = Array.from({ length: 32 }, (_, i) => String(i + 1).padStart(2, '0'));
 const BUS_NUMS = Array.from({ length: 16 }, (_, i) => i + 1);
 
@@ -262,9 +262,26 @@ function BusMasterStrip({
   const dragging  = useRef(false);
   const startY    = useRef(0);
   const startVal  = useRef(entry.level);
+  const trackRef  = useRef<HTMLDivElement>(null);
+  const trackH    = useRef(BUS_FADER_H);
+  const [measuredH, setMeasuredH] = useState(BUS_FADER_H);
+
   const thumbTop  = (1 - entry.level) * 100;
   const db        = m32ToDb(entry.level);
   const isOn      = entry.on;
+
+  // Track fader height dynamically so drag sensitivity and VU always match available space
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([e]) => {
+      const h = e.contentRect.height;
+      trackH.current = h;
+      setMeasuredH(h);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   const onPtrDown = useCallback((e: React.PointerEvent) => {
     if (disabled) return;
@@ -277,7 +294,7 @@ function BusMasterStrip({
   const onPtrMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
     const deltaY = startY.current - e.clientY;
-    const next   = Math.min(1, Math.max(0, startVal.current + deltaY / BUS_FADER_H));
+    const next   = Math.min(1, Math.max(0, startVal.current + deltaY / trackH.current));
     onLevel(busKey, Math.round(next * 1000) / 1000);
   }, [busKey, onLevel]);
 
@@ -292,76 +309,75 @@ function BusMasterStrip({
   }, [busKey, disabled, onLevel]);
 
   return (
-    <div className="flex flex-col items-center gap-1 select-none"
-         style={{ width: 60, padding: '4px 4px' }}>
-      {/* Bus name */}
-      <span
-        className="text-[9px] font-bold tracking-wide text-center truncate w-full
-                   text-amber-300 bg-amber-950/40 border border-amber-800/50 rounded px-1 py-0.5"
-        title={name}
-      >
-        {name || `Bus ${parseInt(busKey)}`}
-      </span>
+    <div className="flex flex-col gap-1 h-full select-none overflow-hidden"
+         style={{ width: 60, padding: '3px 3px' }}>
 
-      {/* Mono / Stereo badge */}
-      <span className={`text-[8px] font-bold uppercase rounded px-1 py-0.5
-        ${mono
-          ? 'bg-purple-900/60 text-purple-300 border border-purple-700/50'
-          : 'bg-blue-900/60 text-blue-300 border border-blue-700/50'}`}>
-        {mono ? 'MONO' : 'STEREO'}
-      </span>
-
-      {/* Bus VU */}
-      <VUMeter levels={vu} height={BUS_FADER_H} compact />
-
-      {/* Bus master fader */}
-      <div
-        className="relative bg-navy-950 rounded border border-navy-700/60"
-        style={{ width: 28, height: BUS_FADER_H }}
-        onPointerDown={onPtrDown}
-        onPointerMove={onPtrMove}
-        onPointerUp={onPtrUp}
-        onClick={onTap}
-      >
-        {/* Unity (0.75) */}
-        <div
-          className="absolute left-0 right-0 border-t border-dashed border-amber-700/50"
-          style={{ top: `${(1 - 0.75) * 100}%` }}
-        />
-        {/* Thumb */}
-        <div
-          className={`absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-sm z-10
-            cursor-grab active:cursor-grabbing border shadow
-            ${disabled ? 'bg-navy-700 border-navy-600' : isOn ? 'bg-amber-500 border-amber-400' : 'bg-navy-600 border-navy-500'}`}
-          style={{ top: `${thumbTop}%`, width: 24, height: 10 }}
-          title={`${fmtDb(db)} dB — double-tap: unity`}
+      {/* Name + badge — satu baris */}
+      <div className="flex items-center gap-1 w-full shrink-0">
+        <span
+          className="flex-1 text-[8px] font-bold tracking-wide text-center truncate
+                     text-amber-300 bg-amber-950/40 border border-amber-800/50 rounded px-1 py-0.5"
+          title={name}
         >
-          <div className="absolute inset-x-1 top-1/2 -translate-y-1/2 flex flex-col gap-[2px]">
-            {[0,1,2].map(i => <div key={i} className="h-px bg-white/25" />)}
+          {name || `Bus ${parseInt(busKey)}`}
+        </span>
+        <span className={`text-[7px] font-bold uppercase rounded px-0.5 py-0.5 shrink-0
+          ${mono
+            ? 'bg-navy-900/60 text-navy-300 border border-navy-700/50'
+            : 'bg-blue-900/60 text-blue-300 border border-blue-700/50'}`}>
+          {mono ? 'M' : 'S'}
+        </span>
+      </div>
+
+      {/* VU + Fader — flex-1 mengisi sisa ruang yang tersedia */}
+      <div className="flex items-stretch gap-1 flex-1 min-h-0">
+        <VUMeter levels={vu} height={measuredH} compact />
+        <div
+          ref={trackRef}
+          className="relative bg-navy-950 rounded border border-navy-700/60 flex-1"
+          onPointerDown={onPtrDown}
+          onPointerMove={onPtrMove}
+          onPointerUp={onPtrUp}
+          onClick={onTap}
+        >
+          {/* Unity (0.75) */}
+          <div
+            className="absolute left-0 right-0 border-t border-dashed border-amber-700/50"
+            style={{ top: `${(1 - 0.75) * 100}%` }}
+          />
+          {/* Thumb */}
+          <div
+            className={`absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-sm z-10
+              cursor-grab active:cursor-grabbing border shadow
+              ${disabled ? 'bg-navy-700 border-navy-600' : isOn ? 'bg-amber-500 border-amber-400' : 'bg-navy-600 border-navy-500'}`}
+            style={{ top: `${thumbTop}%`, width: 22, height: 8 }}
+            title={`${fmtDb(db)} dB — double-tap: unity`}
+          >
+            <div className="absolute inset-x-1 top-1/2 -translate-y-1/2 flex flex-col gap-[2px]">
+              {[0,1,2].map(i => <div key={i} className="h-px bg-white/25" />)}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* dB */}
-      <div className={`text-[9px] font-mono font-semibold text-center py-0.5 px-1
-        rounded bg-navy-950 border border-navy-700/40 w-full
-        ${db > 0 ? 'text-amber-400' : db > -6 ? 'text-green-400' : 'text-navy-400'}`}>
-        {fmtDb(db)}
+      {/* dB + ON/OFF — satu baris di bawah */}
+      <div className="flex items-center gap-1 w-full shrink-0">
+        <div className={`flex-1 text-[8px] font-mono font-semibold text-center py-0.5 px-0.5
+          rounded bg-navy-950 border border-navy-700/40
+          ${db > 0 ? 'text-amber-400' : db > -6 ? 'text-green-400' : 'text-navy-400'}`}>
+          {fmtDb(db)}
+        </div>
+        <button
+          disabled={disabled}
+          onClick={() => !disabled && onOn(busKey, !isOn)}
+          className={`text-[8px] font-bold px-1.5 py-0.5 rounded transition-colors shrink-0
+            ${isOn
+              ? 'bg-green-600 text-white shadow-[0_0_5px_#16a34a]'
+              : 'bg-navy-800 text-navy-500'}`}
+        >
+          {isOn ? 'ON' : 'OFF'}
+        </button>
       </div>
-
-      {/* ON/OFF */}
-      <button
-        disabled={disabled}
-        onClick={() => !disabled && onOn(busKey, !isOn)}
-        className={`w-full text-[9px] font-bold py-1 rounded transition-colors
-          ${isOn
-            ? 'bg-green-600 text-white shadow-[0_0_5px_#16a34a]'
-            : 'bg-navy-800 text-navy-500'}`}
-      >
-        {isOn ? 'ON' : 'OFF'}
-      </button>
-
-      <div className="text-[8px] text-amber-700 tracking-wider text-center">BUS</div>
     </div>
   );
 }
@@ -463,10 +479,10 @@ export default function M32Mixer({
           <div className="flex gap-0.5">
             {[0,1,2].map(i => (
               <div key={i} className="w-1 h-5 rounded-sm"
-                   style={{ background: ['#c084fc','#a855f7','#7c3aed'][i] }} />
+                   style={{ background: ['#a4bcfd','#6172f3','#3e46d0'][i] }} />
             ))}
           </div>
-          <span className="text-sm font-bold tracking-wide text-purple-200">
+          <span className="text-sm font-bold tracking-wide text-navy-200">
             MIDAS M32R LIVE
           </span>
         </div>
@@ -480,7 +496,7 @@ export default function M32Mixer({
           placeholder="IP Address M32 (e.g. 192.168.1.10)"
           className="flex-1 min-w-0 bg-navy-800 border border-navy-600/60 rounded px-2 py-1
                      text-[11px] text-navy-100 placeholder-navy-600
-                     focus:outline-none focus:border-purple-600"
+                     focus:outline-none focus:border-navy-500"
         />
 
         {/* Connect / Disconnect button */}
@@ -499,8 +515,8 @@ export default function M32Mixer({
             disabled={!hasIP || isConnecting}
             className="shrink-0 px-2 py-1 rounded text-[10px] font-bold transition-colors
                        disabled:opacity-40 disabled:cursor-not-allowed
-                       bg-purple-700 text-white border border-purple-500/60
-                       hover:bg-purple-600"
+                       bg-navy-700 text-white border border-navy-500/60
+                       hover:bg-navy-600"
           >
             {isConnecting ? 'CONNECTING…' : 'CONNECT'}
           </button>
@@ -535,7 +551,7 @@ export default function M32Mixer({
               className={`shrink-0 rounded text-[9px] font-bold transition-colors
                 w-6 h-6 border
                 ${isActive
-                  ? 'bg-purple-700 text-white border-purple-500 shadow-[0_0_4px_#7c3aed]'
+                  ? 'bg-navy-700 text-white border-navy-500 shadow-[0_0_4px_#3e46d0]'
                   : 'bg-navy-800 text-navy-500 border-navy-700 hover:text-navy-300'}`}
             >
               {n}
@@ -543,7 +559,7 @@ export default function M32Mixer({
           );
         })}
         {/* Selected bus names label */}
-        <span className="text-[9px] text-purple-400 ml-2 shrink-0">
+        <span className="text-[9px] text-navy-400 ml-2 shrink-0">
           {sortedBuses.map(n => busLabel(n)).join(' + ')}
         </span>
       </div>
@@ -553,7 +569,7 @@ export default function M32Mixer({
 
         {/* Disabled overlay — shown when disconnected OR no IP */}
         {(!isConnected) && (
-          <div className="absolute inset-0 z-10 bg-navy-950/70 backdrop-blur-[1px]
+          <div className="absolute inset-0 z-50 bg-navy-950/70 backdrop-blur-[1px]
                           flex items-center justify-center pointer-events-none">
             <div className="text-center">
               <span className="text-[11px] text-navy-500 uppercase tracking-widest font-semibold block">
@@ -607,8 +623,8 @@ export default function M32Mixer({
 
         {/* Bus master strips — fixed right, one per selected bus */}
         {sortedBuses.length > 0 && (
-          <div className="flex border-l-2 border-purple-900/60 bg-purple-950/10
-                          shrink-0 overflow-x-auto overflow-y-auto h-full gap-px">
+          <div className="flex border-l-2 border-navy-700/60 bg-navy-900/10
+                          shrink-0 overflow-x-auto overflow-y-hidden h-full gap-px">
             {sortedBuses.map(busNum => {
               const busKey = String(busNum).padStart(2, '0');
               const entry  = busLevels[busKey] ?? { level: 0.75, on: true };
