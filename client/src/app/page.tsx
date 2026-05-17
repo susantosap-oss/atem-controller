@@ -6,6 +6,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import FairlightMixer  from '@/components/FairlightMixer';
 import M32Mixer        from '@/components/M32Mixer';
 import MediaPlayer     from '@/components/MediaPlayer';
@@ -37,7 +38,7 @@ export default function HomePage() {
 
   const {
     m32Status, channelNames, busNames, busConfig,
-    sendLevels, busLevels, inputVu, busVu,
+    sendLevels, sendPre, busLevels, inputVu, busVu,
     connectM32, disconnectM32,
     setChannelSendLevel, setChannelSendOn, setBusLevel, setBusOn, queryBus,
   } = useM32(socket);
@@ -247,10 +248,11 @@ export default function HomePage() {
                   busNames={busNames}
                   busConfig={busConfig}
                   sendLevels={sendLevels}
+                  sendPre={sendPre}
                   busLevels={busLevels}
                   inputVu={inputVu}
                   busVu={busVu}
-                  serverConnected={socketStatus === 'connected'}
+                  serverConnected={Capacitor.isNativePlatform() || socketStatus === 'connected'}
                   onConnect={connectM32}
                   onDisconnect={disconnectM32}
                   onChannelSendLevel={setChannelSendLevel}

@@ -32,13 +32,14 @@ export interface M32BusEntry {
 
 export interface M32State {
   status:       M32Status;
-  channelNames: Record<string, string>;         // '01'..'32'
-  busNames:     Record<string, string>;         // '01'..'16'
+  channelNames: Record<string, string>;            // '01'..'32'
+  busNames:     Record<string, string>;            // '01'..'16'
   busConfig:    Record<string, { mono: boolean }>; // '01'..'16'
-  sendLevels:   Record<string, M32SendEntry>;   // 'ch:bus' key
-  busLevels:    Record<string, M32BusEntry>;    // '01'..'16'
-  inputVu:      Record<string, LevelData>;      // '01'..'32'
-  busVu:        Record<string, LevelData>;      // '01'..'16'
+  sendLevels:   Record<string, M32SendEntry>;      // 'ch:bus' key
+  sendPre:      Record<string, boolean>;           // 'ch:bus' key, true=pre-fader
+  busLevels:    Record<string, M32BusEntry>;       // '01'..'16'
+  inputVu:      Record<string, LevelData>;         // '01'..'32'
+  busVu:        Record<string, LevelData>;         // '01'..'16'
 }
 
 // Smoothing constants — linear amplitude domain (correct VU ballistics)
@@ -73,6 +74,7 @@ export function useM32(socket: Socket | null) {
   const [busNames, setBusNames]         = useState<Record<string, string>>({});
   const [busConfig, setBusConfig]       = useState<Record<string, { mono: boolean }>>({});
   const [sendLevels, setSendLevels]     = useState<Record<string, M32SendEntry>>({});
+  const [sendPre, setSendPre]           = useState<Record<string, boolean>>({});
   const [busLevels, setBusLevels]       = useState<Record<string, M32BusEntry>>({});
 
   // Raw meter refs (not smoothed) — dB values from server
@@ -204,6 +206,9 @@ export function useM32(socket: Socket | null) {
       await addL('m32:sendOn', (d: { ch: string; bus: string; level: number; on: boolean }) => {
         setSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
       });
+      await addL('m32:sendPre', (d: { ch: string; bus: string; pre: boolean }) => {
+        setSendPre(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: d.pre }));
+      });
       await addL('m32:busLevel', (d: { bus: string; level: number; on: boolean }) => {
         setBusLevels(prev => ({ ...prev, [d.bus]: { level: d.level, on: d.on } }));
       });
@@ -259,6 +264,7 @@ export function useM32(socket: Socket | null) {
     socket.on('m32:busConfig',    onBusConfig);
     socket.on('m32:sendLevel',    onSendLevel);
     socket.on('m32:sendOn',       onSendOn);
+    // m32:sendPre is native-only; no server-side equivalent needed
     socket.on('m32:busLevel',     onBusLevel);
     socket.on('m32:busOn',        onBusOn);
     socket.on('m32:inputMeters',  onInputMeters);
@@ -360,6 +366,7 @@ export function useM32(socket: Socket | null) {
     busNames,
     busConfig,
     sendLevels,
+    sendPre,
     busLevels,
     inputVu,
     busVu,

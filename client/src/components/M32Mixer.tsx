@@ -60,6 +60,7 @@ interface M32MixerProps {
   busNames:       Record<string, string>;
   busConfig:      Record<string, { mono: boolean }>;
   sendLevels:     Record<string, M32SendEntry>;
+  sendPre:        Record<string, boolean>;
   busLevels:      Record<string, M32BusEntry>;
   inputVu:        Record<string, LevelData>;
   busVu:          Record<string, LevelData>;
@@ -75,9 +76,10 @@ interface M32MixerProps {
 
 // ── Constants ─────────────────────────────────────────────────
 
-const FADER_H    = 120;   // px — send fader track height
+const FADER_H     = 120;  // px — send fader track height
 const BUS_FADER_H = 120;  // px — bus master fader height (same as send fader)
-const LS_KEY     = 'm32ip';
+const LS_KEY      = 'm32ip';
+const LS_BUSES    = 'm32buses';
 
 const DEFAULT_BUSES = new Set([5, 6]);
 const CH_KEYS = Array.from({ length: 32 }, (_, i) => String(i + 1).padStart(2, '0'));
@@ -86,12 +88,13 @@ const BUS_NUMS = Array.from({ length: 16 }, (_, i) => i + 1);
 // ── Send fader (compact vertical, one per bus) ────────────────
 
 function SendFader({
-  ch, bus, entry, disabled,
+  ch, bus, entry, disabled, isPre,
   onChange, onToggle,
 }: {
   ch: string; bus: string;
   entry: M32SendEntry;
   disabled: boolean;
+  isPre?: boolean;
   onChange: (ch: string, bus: string, v: number) => void;
   onToggle: (ch: string, bus: string, on: boolean) => void;
 }) {
@@ -181,6 +184,17 @@ function SendFader({
       >
         {isOn ? 'ON' : 'OFF'}
       </button>
+
+      {/* PRE / POST routing badge */}
+      {isPre !== undefined && (
+        <div className={`text-[7px] font-bold rounded py-0.5 text-center w-full leading-tight
+          ${isPre
+            ? 'bg-amber-900/70 text-amber-400 border border-amber-700/50'
+            : 'bg-navy-800/50 text-navy-600 border border-navy-700/30'}`}
+        >
+          {isPre ? 'PRE' : 'POST'}
+        </div>
+      )}
     </div>
   );
 }
@@ -188,13 +202,14 @@ function SendFader({
 // ── Channel strip ─────────────────────────────────────────────
 
 function M32ChannelStrip({
-  chKey, name, selectedBuses, sendLevels, vu, disabled,
+  chKey, name, selectedBuses, sendLevels, sendPre, vu, disabled,
   onSendLevel, onSendOn,
 }: {
   chKey:         string;
   name:          string;
   selectedBuses: number[];
   sendLevels:    Record<string, M32SendEntry>;
+  sendPre:       Record<string, boolean>;
   vu?:           LevelData;
   disabled:      boolean;
   onSendLevel:   (ch: string, bus: string, v: number) => void;
@@ -228,6 +243,7 @@ function M32ChannelStrip({
         {selectedBuses.map((busNum) => {
           const busKey = String(busNum).padStart(2, '0');
           const entry  = sendLevels[`${chKey}:${busKey}`] ?? { level: 0.75, on: true };
+          const isPre  = sendPre[`${chKey}:${busKey}`];
           return (
             <SendFader
               key={busNum}
@@ -235,6 +251,7 @@ function M32ChannelStrip({
               bus={busKey}
               entry={entry}
               disabled={disabled}
+              isPre={isPre}
               onChange={onSendLevel}
               onToggle={onSendOn}
             />
@@ -390,6 +407,7 @@ export default function M32Mixer({
   busNames,
   busConfig,
   sendLevels,
+  sendPre,
   busLevels,
   inputVu,
   busVu,
@@ -410,7 +428,16 @@ export default function M32Mixer({
   const [ipInput, setIpInput] = useState(m32IP);
 
   // ── Bus selection ─────────────────────────────────────────
-  const [selectedBuses, setSelectedBuses] = useState<Set<number>>(DEFAULT_BUSES);
+  const [selectedBuses, setSelectedBuses] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem(LS_BUSES);
+      if (saved) {
+        const arr = JSON.parse(saved) as number[];
+        if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
+      }
+    } catch {}
+    return DEFAULT_BUSES;
+  });
 
   const sortedBuses = useMemo(
     () => Array.from(selectedBuses).sort((a, b) => a - b),
@@ -425,6 +452,7 @@ export default function M32Mixer({
       } else {
         next.add(n);
       }
+      try { localStorage.setItem(LS_BUSES, JSON.stringify(Array.from(next))); } catch {}
       return next;
     });
   }, []);
@@ -610,6 +638,7 @@ export default function M32Mixer({
                     name={channelNames[chKey] || `CH ${parseInt(chKey)}`}
                     selectedBuses={sortedBuses}
                     sendLevels={sendLevels}
+                    sendPre={sendPre}
                     vu={inputVu[chKey]}
                     disabled={disabled}
                     onSendLevel={onChannelSendLevel}
