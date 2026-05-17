@@ -116,9 +116,9 @@ export default function FairlightMixer({
           </div>
         )}
 
-        {/* Channel strips — horizontally scrollable */}
-        <div className="flex-1 overflow-x-auto overflow-y-hidden">
-          <div className="flex items-stretch h-full gap-px min-w-max">
+        {/* Channel strips — horizontally scrollable, vertically scrollable as safety */}
+        <div className="flex-1 overflow-x-auto overflow-y-auto">
+          <div className="flex items-start h-full gap-px min-w-max">
 
             {/* Section label */}
             <div className="flex flex-col justify-between px-2 py-3 shrink-0">
@@ -174,16 +174,10 @@ export default function FairlightMixer({
         </div>
       </div>
 
-      {/* ── Bottom status bar ─────────────────────────── */}
-      <div className="flex items-center px-4 py-1.5 bg-navy-950
-                      border-t border-navy-800/60 shrink-0 gap-4">
-        <span className="text-[10px] text-navy-600">
-          BLACKMAGIC DESIGN — ATEM REMOTE
-        </span>
-        <div className="ml-auto flex gap-4 text-[10px] text-navy-600">
-          <span>Fader: drag up/down · double-tap = 0dB</span>
-          <span>ON = output on · AFV = audio follows video</span>
-        </div>
+      {/* Bottom hint — ultra-compact, tidak makan tinggi */}
+      <div className="flex items-center px-3 py-0.5 bg-navy-950
+                      border-t border-navy-800/40 shrink-0 gap-3">
+        <span className="text-[8px] text-navy-700">FAIRLIGHT · drag=fader · 2×tap=0dB · ON/AFV/OFF</span>
       </div>
     </div>
   );

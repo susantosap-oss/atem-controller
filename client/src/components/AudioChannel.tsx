@@ -27,7 +27,7 @@ interface AudioChannelProps {
   onBalanceChange?: (index: string | number, balance: number) => void;
 }
 
-const FADER_HEIGHT = 110; // px — track height (compact to fit ON/AFV/OFF on small screens)
+const FADER_HEIGHT = 120; // px — fader track height
 const PAN_WIDTH    = 52;  // px — pan drag width
 
 export default function AudioChannel({
@@ -260,32 +260,32 @@ export default function AudioChannel({
         </div>
       </div>
 
-      {/* ON / AFV / OFF buttons */}
+      {/* ON / AFV / OFF — horizontal row, compact */}
       {!isMaster && (
-        <div className="flex flex-col gap-1 w-full">
+        <div className="flex gap-0.5 w-full">
           <button
             onClick={toggleOn}
-            className={`w-full text-[10px] font-bold py-1 rounded transition-colors
+            className={`flex-1 text-[9px] font-bold py-0.5 rounded transition-colors
               ${isOn
-                ? 'bg-green-600 text-white shadow-[0_0_6px_#16a34a]'
+                ? 'bg-green-600 text-white shadow-[0_0_5px_#16a34a]'
                 : 'bg-navy-800 text-navy-500 hover:bg-navy-700'}`}
           >
             ON
           </button>
           <button
             onClick={toggleAFV}
-            className={`w-full text-[10px] font-bold py-1 rounded transition-colors
+            className={`flex-1 text-[9px] font-bold py-0.5 rounded transition-colors
               ${isAFV
-                ? 'bg-amber-500 text-white shadow-[0_0_6px_#d97706]'
+                ? 'bg-amber-500 text-white shadow-[0_0_5px_#d97706]'
                 : 'bg-navy-800 text-navy-500 hover:bg-navy-700'}`}
           >
             AFV
           </button>
           <button
             onClick={toggleOff}
-            className={`w-full text-[10px] font-bold py-1 rounded transition-colors
+            className={`flex-1 text-[9px] font-bold py-0.5 rounded transition-colors
               ${isOff
-                ? 'bg-red-700 text-white shadow-[0_0_6px_#b91c1c]'
+                ? 'bg-red-700 text-white shadow-[0_0_5px_#b91c1c]'
                 : 'bg-navy-800 text-navy-500 hover:bg-navy-700'}`}
           >
             OFF

@@ -470,9 +470,24 @@ export default function M32Mixer({
     setSelectedBuses(prev => {
       const next = new Set(prev);
       if (next.has(n)) {
-        if (next.size > 1) next.delete(n); // keep at least 1
+        if (next.size > 1) next.delete(n);
       } else {
         next.add(n);
+      }
+      try { localStorage.setItem(LS_BUSES, JSON.stringify(Array.from(next))); } catch {}
+      return next;
+    });
+  }, []);
+
+  const toggleLinkedPair = useCallback((n1: number, n2: number) => {
+    setSelectedBuses(prev => {
+      const next = new Set(prev);
+      const bothActive = next.has(n1) && next.has(n2);
+      if (bothActive) {
+        // Deselect both — tapi jaga minimal 1 bus aktif
+        if (next.size > 2) { next.delete(n1); next.delete(n2); }
+      } else {
+        next.add(n1); next.add(n2);
       }
       try { localStorage.setItem(LS_BUSES, JSON.stringify(Array.from(next))); } catch {}
       return next;
@@ -591,21 +606,58 @@ export default function M32Mixer({
         <span className="text-[9px] text-navy-600 uppercase tracking-widest shrink-0 mr-1">
           MixBus
         </span>
-        {BUS_NUMS.map(n => {
-          const isActive = selectedBuses.has(n);
+        {/* Render bus pairs: check busConfig untuk deteksi linked (stereo) */}
+        {Array.from({ length: 8 }, (_, i) => {
+          const n1 = i * 2 + 1;
+          const n2 = n1 + 1;
+          const k1 = String(n1).padStart(2, '0');
+          const isLinked = busConfig[k1] && !busConfig[k1].mono; // stereo = linked pair
+
+          if (isLinked) {
+            const bothActive = selectedBuses.has(n1) && selectedBuses.has(n2);
+            const eitherActive = selectedBuses.has(n1) || selectedBuses.has(n2);
+            const name1 = busNames[k1] || `${n1}`;
+            const name2 = busNames[String(n2).padStart(2,'0')] || `${n2}`;
+            return (
+              <button
+                key={n1}
+                onClick={() => toggleLinkedPair(n1, n2)}
+                title={`${name1} / ${name2} — LINKED STEREO`}
+                className={`shrink-0 rounded text-[9px] font-bold transition-colors
+                  h-6 px-1.5 border flex items-center gap-0.5
+                  ${bothActive
+                    ? 'bg-blue-700 text-white border-blue-500 shadow-[0_0_4px_#1d4ed8]'
+                    : eitherActive
+                      ? 'bg-blue-900/60 text-blue-300 border-blue-700'
+                      : 'bg-navy-800 text-navy-500 border-navy-700 hover:text-navy-300'}`}
+              >
+                <span>{n1}</span>
+                <span className="text-[6px] opacity-70">⬡</span>
+                <span>{n2}</span>
+              </button>
+            );
+          }
+
           return (
-            <button
-              key={n}
-              onClick={() => toggleBus(n)}
-              title={busNames[String(n).padStart(2,'0')] || `Bus ${n}`}
-              className={`shrink-0 rounded text-[9px] font-bold transition-colors
-                w-6 h-6 border
-                ${isActive
-                  ? 'bg-navy-700 text-white border-navy-500 shadow-[0_0_4px_#3e46d0]'
-                  : 'bg-navy-800 text-navy-500 border-navy-700 hover:text-navy-300'}`}
-            >
-              {n}
-            </button>
+            <React.Fragment key={n1}>
+              {[n1, n2].map(n => {
+                const isActive = selectedBuses.has(n);
+                return (
+                  <button
+                    key={n}
+                    onClick={() => toggleBus(n)}
+                    title={busNames[String(n).padStart(2,'0')] || `Bus ${n}`}
+                    className={`shrink-0 rounded text-[9px] font-bold transition-colors
+                      w-6 h-6 border
+                      ${isActive
+                        ? 'bg-navy-700 text-white border-navy-500 shadow-[0_0_4px_#3e46d0]'
+                        : 'bg-navy-800 text-navy-500 border-navy-700 hover:text-navy-300'}`}
+                  >
+                    {n}
+                  </button>
+                );
+              })}
+            </React.Fragment>
           );
         })}
         {/* Selected bus names label */}
