@@ -50,6 +50,8 @@ public class M32Connection {
         void onChannelNames(JSObject names);
         void onBusNames(JSObject names);
         void onBusConfig(JSObject config);
+        void onAuxInNames(JSObject names);
+        void onFxRtnNames(JSObject names);
         void onSendLevel(String ch, String bus, double level, boolean on);
         void onSendOn(String ch, String bus, double level, boolean on);
         void onSendPre(String ch, String bus, boolean pre);
@@ -75,6 +77,8 @@ public class M32Connection {
     private final Map<String, String>   channelNames = new HashMap<>();
     private final Map<String, String>   busNames     = new HashMap<>();
     private final Map<String, Boolean>  busMono      = new HashMap<>();
+    private final Map<String, String>   auxInNames   = new HashMap<>();
+    private final Map<String, String>   fxRtnNames   = new HashMap<>();
     private final Map<String, double[]> sendLevels   = new HashMap<>(); // "ch:bus" → [level, on]
     private final Map<String, Boolean>  sendPre      = new HashMap<>(); // "ch:bus" → pre
     private final Map<String, double[]> busLevels    = new HashMap<>(); // bus      → [level, on]
@@ -128,8 +132,11 @@ public class M32Connection {
                 socket = sock;
                 Log.i(TAG, "M32 bound → " + ip + ":" + M32_PORT);
 
+                // Send /xremote synchronously first — M32 only responds to queries
+                // from hosts that have recently sent /xremote. Must arrive before queries.
+                sendXremote();
                 xremoteFuture = scheduler.scheduleAtFixedRate(
-                    this::sendXremote, 0, XREMOTE_INTERVAL_MS, TimeUnit.MILLISECONDS);
+                    this::sendXremote, XREMOTE_INTERVAL_MS, XREMOTE_INTERVAL_MS, TimeUnit.MILLISECONDS);
                 meterFuture = scheduler.scheduleAtFixedRate(
                     this::pollMeters, 500, METER_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
@@ -357,6 +364,28 @@ public class M32Connection {
             return;
         }
 
+        // /auxin/NN/config/name
+        if (addr.matches("^/auxin/\\d+/config/name$")) {
+            String[] p    = addr.split("/");
+            String   ch   = p[2];
+            String   name = a0 instanceof String ? ((String) a0).trim() : "";
+            if (name.isEmpty()) name = "AuxIn " + Integer.parseInt(ch);
+            auxInNames.put(ch, name);
+            emitAuxInNames();
+            return;
+        }
+
+        // /fxrtn/NN/config/name
+        if (addr.matches("^/fxrtn/\\d+/config/name$")) {
+            String[] p    = addr.split("/");
+            String   ch   = p[2];
+            String   name = a0 instanceof String ? ((String) a0).trim() : "";
+            if (name.isEmpty()) name = "FxRtn " + Integer.parseInt(ch);
+            fxRtnNames.put(ch, name);
+            emitFxRtnNames();
+            return;
+        }
+
         // /bus/NN/config/ms
         if (addr.matches("^/bus/\\d+/config/ms$")) {
             String[] p    = addr.split("/");
@@ -496,6 +525,14 @@ public class M32Connection {
             String ch = String.format("%02d", i);
             sendNoArgs("/ch/" + ch + "/config/name");
         }
+        for (int i = 1; i <= 8; i++) {
+            String ch = String.format("%02d", i);
+            sendNoArgs("/auxin/" + ch + "/config/name");
+        }
+        for (int i = 1; i <= 4; i++) {
+            String ch = String.format("%02d", i);
+            sendNoArgs("/fxrtn/" + ch + "/config/name");
+        }
         for (int i = 1; i <= 16; i++) {
             String b = String.format("%02d", i);
             sendNoArgs("/bus/" + b + "/config/name");
@@ -567,6 +604,18 @@ public class M32Connection {
         JSObject obj = new JSObject();
         for (Map.Entry<String, String> e : busNames.entrySet()) obj.put(e.getKey(), e.getValue());
         mainHandler.post(() -> listener.onBusNames(obj));
+    }
+
+    private void emitAuxInNames() {
+        JSObject obj = new JSObject();
+        for (Map.Entry<String, String> e : auxInNames.entrySet()) obj.put(e.getKey(), e.getValue());
+        mainHandler.post(() -> listener.onAuxInNames(obj));
+    }
+
+    private void emitFxRtnNames() {
+        JSObject obj = new JSObject();
+        for (Map.Entry<String, String> e : fxRtnNames.entrySet()) obj.put(e.getKey(), e.getValue());
+        mainHandler.post(() -> listener.onFxRtnNames(obj));
     }
 
     private void emitBusConfig() {

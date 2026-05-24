@@ -289,6 +289,8 @@ export function useM32(socket: Socket | null) {
       await addL('m32:channelNames', (d: Record<string, string>) => setChannelNames(d));
       await addL('m32:busNames',     (d: Record<string, string>) => setBusNames(d));
       await addL('m32:busConfig',    (d: Record<string, { mono: boolean }>) => setBusConfig(d));
+      await addL('m32:auxInNames',   (d: Record<string, string>) => setAuxInNames(d));
+      await addL('m32:fxRtnNames',   (d: Record<string, string>) => setFxRtnNames(d));
       await addL('m32:sendLevel', (d: { ch: string; bus: string; level: number; on: boolean }) => {
         setSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
       });

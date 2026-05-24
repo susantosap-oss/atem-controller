@@ -118,6 +118,16 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
     }
 
     @Override
+    public void onAuxInNames(JSObject names) {
+        notifyListeners("m32:auxInNames", names);
+    }
+
+    @Override
+    public void onFxRtnNames(JSObject names) {
+        notifyListeners("m32:fxRtnNames", names);
+    }
+
+    @Override
     public void onSendLevel(String ch, String bus, double level, boolean on) {
         JSObject data = new JSObject();
         data.put("ch",    ch);
