@@ -274,7 +274,18 @@ export function useM32(socket: Socket | null) {
     };
 
     (async () => {
-      await addL('m32:status', (d: M32Status) => setM32Status(d));
+      await addL('m32:status', (d: M32Status) => {
+        setM32Status(d);
+        if (d.status === 'disconnected' || d.status === 'error') {
+          rawInputRef.current = {}; rawBusRef.current = {};
+          rawAuxInRef.current = {}; rawFxRtnRef.current = {};
+          smoothInputRef.current = {}; smoothBusRef.current = {};
+          smoothAuxInRef.current = {}; smoothFxRtnRef.current = {};
+          peakInputRef.current = {}; peakBusRef.current = {};
+          peakAuxInRef.current = {}; peakFxRtnRef.current = {};
+          setInputVu({}); setBusVu({}); setAuxInVu({}); setFxRtnVu({});
+        }
+      });
       await addL('m32:channelNames', (d: Record<string, string>) => setChannelNames(d));
       await addL('m32:busNames',     (d: Record<string, string>) => setBusNames(d));
       await addL('m32:busConfig',    (d: Record<string, { mono: boolean }>) => setBusConfig(d));
@@ -317,7 +328,27 @@ export function useM32(socket: Socket | null) {
     const onHandshake = (data: { m32Status?: M32Status }) => {
       if (data.m32Status) setM32Status(data.m32Status);
     };
-    const onStatus       = (d: M32Status) => setM32Status(d);
+    const onStatus = (d: M32Status) => {
+      setM32Status(d);
+      if (d.status === 'disconnected' || d.status === 'error') {
+        rawInputRef.current  = {};
+        rawBusRef.current    = {};
+        rawAuxInRef.current  = {};
+        rawFxRtnRef.current  = {};
+        smoothInputRef.current  = {};
+        smoothBusRef.current    = {};
+        smoothAuxInRef.current  = {};
+        smoothFxRtnRef.current  = {};
+        peakInputRef.current    = {};
+        peakBusRef.current      = {};
+        peakAuxInRef.current    = {};
+        peakFxRtnRef.current    = {};
+        setInputVu({});
+        setBusVu({});
+        setAuxInVu({});
+        setFxRtnVu({});
+      }
+    };
     const onChannelNames = (d: Record<string, string>) => setChannelNames(d);
     const onBusNames     = (d: Record<string, string>) => setBusNames(d);
     const onBusConfig    = (d: Record<string, { mono: boolean }>) => setBusConfig(d);

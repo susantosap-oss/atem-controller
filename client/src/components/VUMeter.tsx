@@ -70,8 +70,8 @@ function Bar({
 }
 
 export default function VUMeter({ levels, height = 120, compact = false }: VUMeterProps) {
-  const l  = levels?.left     ?? -60;
-  const r  = levels?.right    ?? -60;
+  const l  = levels?.left     ?? -90;
+  const r  = levels?.right    ?? -90;
   const pl = levels?.peakLeft  ?? l;
   const pr = levels?.peakRight ?? r;
 

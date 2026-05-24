@@ -449,9 +449,12 @@ public class M32Connection {
             int expected = countLE * 4;
             int offset   = (expected > 0 && expected <= blob.length - 4) ? 4 : 0;
 
-            // Mono: 1 float per channel (countLE == numCh or countLE < numCh*2)
-            // Stereo: 2 floats per channel (L + R pair)
-            boolean stereo = countLE >= numCh * 2;
+            // Stereo only when count header is valid (offset=4) and exactly 2 floats/ch.
+            // If offset=0 (no valid LE header), fall back to blob-size detection.
+            // Avoids false-stereo on extended mono blobs (e.g. 72 floats for 32 ch).
+            boolean stereo = (offset == 4)
+                ? countLE == numCh * 2
+                : blob.length >= numCh * 8;
             int stride = stereo ? 8 : 4;
 
             Log.d(TAG, "parseMeterBlob: blobLen=" + blob.length + " countLE=" + countLE

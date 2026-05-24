@@ -151,7 +151,12 @@ function parseMeterBlob(blob, numCh) {
     const expected = countLE * 4;
     const offset   = (expected > 0 && expected <= blob.length - 4) ? 4 : 0;
 
-    const stereo = countLE >= numCh * 2;
+    // Stereo only when count header is valid (offset=4) and exactly 2 floats/ch.
+    // If offset=0 (no valid LE header), fall back to blob-size detection.
+    // Avoid false-stereo when M32 sends extended mono blobs (e.g. 72 floats for 32 ch).
+    const stereo = offset === 4
+      ? countLE === numCh * 2
+      : blob.length >= numCh * 8;
     const stride = stereo ? 8 : 4;
 
     const result = {};
