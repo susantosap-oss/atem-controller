@@ -515,7 +515,7 @@ public class M32Connection {
 
     private static double linToDbFS(float v) {
         if (v <= 0) return -90;
-        return Math.max(-90, Math.round(20 * Math.log10(v) * 10.0) / 10.0);
+        return Math.max(-90, Math.round(10 * Math.log10(v) * 10.0) / 10.0);
     }
 
     // ── Initial queries ───────────────────────────────────────

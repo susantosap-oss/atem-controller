@@ -173,7 +173,7 @@ function parseMeterBlob(blob, numCh) {
       if (ro + 4 > blob.length) break;
       const vl = blob.readFloatLE(lo), vr = blob.readFloatLE(ro);
       const ch = String(i + 1).padStart(2, '0');
-      const toDb = v => v <= 0 ? -90 : Math.max(-90, Math.round(20 * Math.log10(v) * 10) / 10);
+      const toDb = v => v <= 0 ? -90 : Math.max(-90, Math.round(10 * Math.log10(v) * 10) / 10);
       result[ch] = { left: toDb(vl), right: toDb(vr) };
     }
     return Object.keys(result).length ? result : null;

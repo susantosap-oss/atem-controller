@@ -136,7 +136,7 @@ function dbToM32(db) {
 
 function linToDbFS(v) {
   if (v <= 0) return -90;
-  return Math.max(-90, Math.round(20 * Math.log10(v) * 10) / 10);
+  return Math.max(-90, Math.round(10 * Math.log10(v) * 10) / 10);
 }
 
 // ── Meter blob parser ─────────────────────────────────────────
