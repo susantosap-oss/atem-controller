@@ -335,6 +335,9 @@ public class AtemConnection {
             emitMediaState();
             // Request Fairlight VU level streaming — delayed 500ms so ATEM finishes init
             scheduler.schedule(this::requestFairlightLevels, 500, TimeUnit.MILLISECONDS);
+            // Renew every 4 min — ATEM Fairlight level stream TTL is ~5 min
+            scheduler.scheduleAtFixedRate(this::requestFairlightLevels,
+                    4 * 60, 4 * 60, TimeUnit.SECONDS);
         }
     }
 
