@@ -386,11 +386,16 @@ public class M32Connection {
             return;
         }
 
-        // /bus/NN/config/ms
+        // /bus/NN/config/ms  — 0=ST (linked stereo), 1=MS, 2=M (mono)
         if (addr.matches("^/bus/\\d+/config/ms$")) {
             String[] p    = addr.split("/");
-            String   bus  = p[2];
-            boolean  mono = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            String   bus  = String.format("%02d", Integer.parseInt(p[2]));
+            int msVal;
+            if (a0 instanceof Integer) msVal = (Integer) a0;
+            else if (a0 instanceof Float) msVal = Math.round((Float) a0);
+            else msVal = 1;
+            boolean mono = msVal != 0; // only ST (0) = linked stereo
+            Log.i(TAG, "BUS_MS bus=" + bus + " raw=" + (a0 != null ? a0.getClass().getSimpleName()+"="+a0 : "null") + " msVal=" + msVal + " mono=" + mono);
             busMono.put(bus, mono);
             emitBusConfig();
             return;
@@ -463,6 +468,13 @@ public class M32Connection {
         if (addr.equals("/meters/5") && a0 instanceof byte[]) {
             JSObject m = parseMeterBlob((byte[]) a0, 16);
             if (m != null) mainHandler.post(() -> listener.onBusMeters(m));
+            return;
+        }
+
+        // ── Catch-all: log unhandled non-meter bus/config messages ──
+        if (!addr.startsWith("/meters") && !addr.startsWith("/ch/") && !addr.startsWith("/auxin/") && !addr.startsWith("/fxrtn/")) {
+            String a0Str = a0 == null ? "null" : (a0.getClass().getSimpleName() + "=" + a0);
+            Log.i(TAG, "M32_OSC addr=" + addr + " a0=" + a0Str);
         }
     }
 
@@ -540,6 +552,12 @@ public class M32Connection {
             sendNoArgs("/bus/" + b + "/mix/level");
             sendNoArgs("/bus/" + b + "/mix/on");
         }
+        // Re-query bus stereo config after 1.5s — M32 may not respond on initial burst
+        scheduler.schedule(() -> {
+            for (int i = 1; i <= 16; i++) {
+                sendNoArgs("/bus/" + String.format("%02d", i) + "/config/ms");
+            }
+        }, 1500, TimeUnit.MILLISECONDS);
     }
 
     public void queryBus(int busNum) {

@@ -223,6 +223,12 @@ class M32Manager extends EventEmitter {
       this._xTimer = setInterval(() => this._xremote(), XREMOTE_INTERVAL);
       this._queryNames();
       this._mTimer = setInterval(() => this._pollMeters(), METER_INTERVAL);
+      // Re-query bus config after 1.5s — M32 may not respond on first burst
+      setTimeout(() => {
+        for (let i = 1; i <= 16; i++) {
+          this._send(`/bus/${String(i).padStart(2,'0')}/config/ms`);
+        }
+      }, 1500);
     });
   }
 
@@ -328,12 +334,13 @@ class M32Manager extends EventEmitter {
       return;
     }
 
-    // Bus mono/stereo
+    // Bus mono/stereo  — ms: 0=ST (linked stereo), 1=MS, 2=M (mono)
     const mMs = address.match(/^\/bus\/(\d+)\/config\/ms$/);
     if (mMs) {
-      const bus = mMs[1];
+      const bus = String(parseInt(mMs[1])).padStart(2, '0');
       if (!this.busConfig[bus]) this.busConfig[bus] = { mono: false };
-      this.busConfig[bus].mono = a0?.value === 1;
+      const msVal = Math.round(a0?.value ?? 1);
+      this.busConfig[bus].mono = msVal !== 0; // only ST (0) = linked stereo
       this.emit('busConfig', { ...this.busConfig });
       return;
     }

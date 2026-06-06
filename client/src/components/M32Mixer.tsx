@@ -90,6 +90,7 @@ const FADER_H     = 120;  // px — send fader track height
 const BUS_FADER_H = 120;  // px — bus master fader height (same as send fader)
 const LS_KEY      = 'm32ip';
 const LS_BUSES    = 'm32buses';
+const LS_LINKED   = 'm32linked'; // manually configured linked (stereo) bus pairs: odd bus numbers
 
 const DEFAULT_BUSES = new Set([5, 6]);
 const CH_KEYS     = Array.from({ length: 32 }, (_, i) => String(i + 1).padStart(2, '0'));
@@ -449,6 +450,33 @@ export default function M32Mixer({
   );
   const [ipInput, setIpInput] = useState(m32IP);
 
+  // ── Manual linked-pair override (odd bus number = left of pair) ─
+  // M32R doesn't respond to /bus/NN/config/ms queries — set manually here.
+  // Merged with busConfig from device: device wins if it ever pushes.
+  const [manualLinked, setManualLinked] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem(LS_LINKED);
+      if (saved) return new Set(JSON.parse(saved) as number[]);
+    } catch {}
+    return new Set<number>();
+  });
+
+  const toggleManualLink = useCallback((n1: number) => {
+    setManualLinked(prev => {
+      const next = new Set(prev);
+      if (next.has(n1)) next.delete(n1); else next.add(n1);
+      try { localStorage.setItem(LS_LINKED, JSON.stringify(Array.from(next))); } catch {}
+      return next;
+    });
+  }, []);
+
+  // Effective link status: device busConfig OR manual override
+  const isLinkedPair = useCallback((n1: number): boolean => {
+    const k1 = String(n1).padStart(2, '0');
+    if (busConfig[k1] !== undefined) return !busConfig[k1].mono;
+    return manualLinked.has(n1);
+  }, [busConfig, manualLinked]);
+
   // ── Bus selection ─────────────────────────────────────────
   const [selectedBuses, setSelectedBuses] = useState<Set<number>>(() => {
     try {
@@ -466,30 +494,20 @@ export default function M32Mixer({
     [selectedBuses]
   );
 
+  // Non-linked bus: exclusive single-select (replaces entire selection)
   const toggleBus = useCallback((n: number) => {
-    setSelectedBuses(prev => {
-      const next = new Set(prev);
-      if (next.has(n)) {
-        if (next.size > 1) next.delete(n);
-      } else {
-        next.add(n);
-      }
-      try { localStorage.setItem(LS_BUSES, JSON.stringify(Array.from(next))); } catch {}
+    setSelectedBuses(() => {
+      const next = new Set([n]);
+      try { localStorage.setItem(LS_BUSES, JSON.stringify([n])); } catch {}
       return next;
     });
   }, []);
 
+  // Linked pair: select the pair exclusively (replaces entire selection)
   const toggleLinkedPair = useCallback((n1: number, n2: number) => {
-    setSelectedBuses(prev => {
-      const next = new Set(prev);
-      const bothActive = next.has(n1) && next.has(n2);
-      if (bothActive) {
-        // Deselect both — tapi jaga minimal 1 bus aktif
-        if (next.size > 2) { next.delete(n1); next.delete(n2); }
-      } else {
-        next.add(n1); next.add(n2);
-      }
-      try { localStorage.setItem(LS_BUSES, JSON.stringify(Array.from(next))); } catch {}
+    setSelectedBuses(() => {
+      const next = new Set([n1, n2]);
+      try { localStorage.setItem(LS_BUSES, JSON.stringify([n1, n2])); } catch {}
       return next;
     });
   }, []);
@@ -518,6 +536,9 @@ export default function M32Mixer({
   const isConnecting = m32Status.status === 'connecting';
   const hasIP        = ipInput.trim().length > 0;
   const disabled     = !isConnected;
+
+  // ── Link edit mode ────────────────────────────────────────
+  const [linkEditMode, setLinkEditMode] = useState(false);
 
   // ── Bus selector label ─────────────────────────────────────
   const busLabel = (n: number) => {
@@ -602,37 +623,50 @@ export default function M32Mixer({
 
       {/* ── Bus selector ───────────────────────────────────── */}
       <div className="flex items-center gap-1 px-3 py-1.5 bg-navy-900/60
-                      border-b border-navy-700/50 shrink-0 overflow-x-auto">
+                      border-b border-navy-700/50 shrink-0">
         <span className="text-[9px] text-navy-600 uppercase tracking-widest shrink-0 mr-1">
           MixBus
         </span>
-        {/* Render bus pairs: check busConfig untuk deteksi linked (stereo) */}
+
+        {/* Scrollable bus buttons — LNK button stays outside */}
+        <div className="flex items-center gap-1 flex-1 overflow-x-auto min-w-0">
         {Array.from({ length: 8 }, (_, i) => {
           const n1 = i * 2 + 1;
           const n2 = n1 + 1;
-          const k1 = String(n1).padStart(2, '0');
-          const isLinked = busConfig[k1] && !busConfig[k1].mono; // stereo = linked pair
+          const linked = isLinkedPair(n1);
 
-          if (isLinked) {
+          if (linkEditMode) {
+            return (
+              <button
+                key={n1}
+                onClick={() => toggleManualLink(n1)}
+                className={`shrink-0 rounded text-[9px] font-bold transition-colors
+                  h-6 px-1.5 border flex items-center gap-0.5
+                  ${linked
+                    ? 'bg-blue-700 text-white border-blue-400'
+                    : 'bg-navy-800 text-navy-500 border-navy-600 border-dashed'}`}
+              >
+                <span>{n1}</span>
+                <span className="text-[8px]">{linked ? '⬡' : '·'}</span>
+                <span>{n2}</span>
+              </button>
+            );
+          }
+
+          if (linked) {
             const bothActive = selectedBuses.has(n1) && selectedBuses.has(n2);
-            const eitherActive = selectedBuses.has(n1) || selectedBuses.has(n2);
-            const name1 = busNames[k1] || `${n1}`;
-            const name2 = busNames[String(n2).padStart(2,'0')] || `${n2}`;
             return (
               <button
                 key={n1}
                 onClick={() => toggleLinkedPair(n1, n2)}
-                title={`${name1} / ${name2} — LINKED STEREO`}
                 className={`shrink-0 rounded text-[9px] font-bold transition-colors
                   h-6 px-1.5 border flex items-center gap-0.5
                   ${bothActive
                     ? 'bg-blue-700 text-white border-blue-500 shadow-[0_0_4px_#1d4ed8]'
-                    : eitherActive
-                      ? 'bg-blue-900/60 text-blue-300 border-blue-700'
-                      : 'bg-navy-800 text-navy-500 border-navy-700 hover:text-navy-300'}`}
+                    : 'bg-navy-800 text-navy-400 border-blue-800/50'}`}
               >
                 <span>{n1}</span>
-                <span className="text-[6px] opacity-70">⬡</span>
+                <span className="text-[6px] opacity-60">⬡</span>
                 <span>{n2}</span>
               </button>
             );
@@ -640,30 +674,45 @@ export default function M32Mixer({
 
           return (
             <React.Fragment key={n1}>
-              {[n1, n2].map(n => {
-                const isActive = selectedBuses.has(n);
-                return (
-                  <button
-                    key={n}
-                    onClick={() => toggleBus(n)}
-                    title={busNames[String(n).padStart(2,'0')] || `Bus ${n}`}
-                    className={`shrink-0 rounded text-[9px] font-bold transition-colors
-                      w-6 h-6 border
-                      ${isActive
-                        ? 'bg-navy-700 text-white border-navy-500 shadow-[0_0_4px_#3e46d0]'
-                        : 'bg-navy-800 text-navy-500 border-navy-700 hover:text-navy-300'}`}
-                  >
-                    {n}
-                  </button>
-                );
-              })}
+              {[n1, n2].map(n => (
+                <button
+                  key={n}
+                  onClick={() => toggleBus(n)}
+                  className={`shrink-0 rounded text-[9px] font-bold transition-colors
+                    w-6 h-6 border
+                    ${selectedBuses.has(n)
+                      ? 'bg-navy-700 text-white border-navy-500 shadow-[0_0_4px_#3e46d0]'
+                      : 'bg-navy-800 text-navy-500 border-navy-700 hover:text-navy-300'}`}
+                >
+                  {n}
+                </button>
+              ))}
             </React.Fragment>
           );
         })}
-        {/* Selected bus names label */}
-        <span className="text-[9px] text-navy-400 ml-2 shrink-0">
-          {sortedBuses.map(n => busLabel(n)).join(' + ')}
-        </span>
+
+          {!linkEditMode && (
+            <span className="text-[9px] text-navy-400 ml-1 shrink-0">
+              {sortedBuses.map(n => busLabel(n)).join(' + ')}
+            </span>
+          )}
+          {linkEditMode && (
+            <span className="text-[9px] text-blue-400 ml-1 shrink-0 italic">
+              tap = toggle link
+            </span>
+          )}
+        </div>{/* end scrollable */}
+
+        {/* LNK button — fixed, always visible */}
+        <button
+          onClick={() => setLinkEditMode(p => !p)}
+          className={`shrink-0 ml-1 rounded text-[9px] font-bold px-1.5 h-6 border transition-colors
+            ${linkEditMode
+              ? 'bg-blue-700 text-white border-blue-400'
+              : 'bg-navy-800 text-navy-600 border-navy-700'}`}
+        >
+          {linkEditMode ? 'DONE' : 'LNK'}
+        </button>
       </div>
 
       {/* ── Mixer area ─────────────────────────────────────── */}

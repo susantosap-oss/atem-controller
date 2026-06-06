@@ -8,6 +8,25 @@ const { EventEmitter } = require('events');
 // Re-send startFairlightMixerSendLevels every 4 min — ATEM firmware has a ~5 min stream TTL.
 const LEVEL_STREAM_RENEW_MS = 4 * 60 * 1000;
 
+// Fairlight uses different MixOption enum values than Classic audio:
+//   FairlightAudioMixOption: Off=1, On=2, AFV=4
+//   App internal (matches Classic-ish): Off=0, On=1, AFV=4
+function fairlightMixToInternal(v) {
+  if (v === 1) return 0; // Fairlight Off → internal Off
+  if (v === 2) return 1; // Fairlight On  → internal On
+  if (v === 4) return 4; // Fairlight AFV → internal AFV
+  return 0;
+}
+function internalMixToFairlight(v) {
+  if (v === 0) return 1; // internal Off → Fairlight Off
+  if (v === 1) return 2; // internal On  → Fairlight On
+  if (v === 4) return 4; // internal AFV → Fairlight AFV
+  return 1;
+}
+
+const WATCHDOG_INTERVAL_MS = 10 * 1000;   // check every 10s
+const WATCHDOG_TIMEOUT_MS  = 30 * 1000;   // force reconnect if no activity for 30s
+
 class AtemManager extends EventEmitter {
   constructor() {
     super();
@@ -15,7 +34,9 @@ class AtemManager extends EventEmitter {
     this._ip = null;
     this._status = 'disconnected'; // 'connecting' | 'connected' | 'disconnected' | 'error'
     this._reconnectTimer = null;
-    this._levelTimer = null;   // periodic Fairlight stream renewal
+    this._levelTimer = null;      // periodic Fairlight stream renewal
+    this._watchdogTimer = null;   // stale-connection detector
+    this._lastActivityTime = 0;
     this._state = null;
     this._levelAccum = {}; // accumulates stereo sub-channel levels per input index
     this._defaultApplied = false; // on first audioState build, non-Mic1 channels start silent
@@ -44,7 +65,9 @@ class AtemManager extends EventEmitter {
     this._atem.on('connected', () => {
       clearTimeout(this._reconnectTimer);
       this._state = this._atem.state;
+      this._lastActivityTime = Date.now();
       this._setStatus('connected');
+      this._startWatchdog();
 
       // Debug: log which audio system is active
       console.log('[ATEM] fairlight present:', !!this._state?.fairlight,
@@ -76,6 +99,7 @@ class AtemManager extends EventEmitter {
     // Fairlight level events (bypass stateChanged — emitted by atem-connection directly)
     this._atem.on('levelChanged', (levelData) => {
       if (!this._isConnected()) return;
+      this._lastActivityTime = Date.now();
       const levels = {};
       if (levelData.type === 'source') {
         const l = levelData.levels;
@@ -117,6 +141,7 @@ class AtemManager extends EventEmitter {
     });
 
     this._atem.on('stateChanged', (state, pathKeys) => {
+      this._lastActivityTime = Date.now();
       this._state = state;
       this._handleStateChange(pathKeys);
     });
@@ -127,10 +152,12 @@ class AtemManager extends EventEmitter {
       this._scheduleReconnect();
     });
 
-    // Connection timeout: 10s
+    // Connection timeout: 10s — schedule retry if still not connected
     this._reconnectTimer = setTimeout(() => {
       if (this._status !== 'connected') {
+        console.warn('[ATEM] Connection timeout, will retry...');
         this._setStatus('error', 'Connection timeout');
+        this._scheduleReconnect();
       }
     }, 10000);
 
@@ -138,13 +165,16 @@ class AtemManager extends EventEmitter {
       await this._atem.connect(ip);
     } catch (err) {
       this._setStatus('error', err.message);
+      this._scheduleReconnect();
     }
   }
 
   async disconnect(clearIP = true) {
     clearTimeout(this._reconnectTimer);
     clearInterval(this._levelTimer);
+    clearInterval(this._watchdogTimer);
     this._levelTimer = null;
+    this._watchdogTimer = null;
     if (this._atem) {
       this._atem.removeAllListeners();
       try { await this._atem.disconnect(); } catch (_) {}
@@ -164,12 +194,24 @@ class AtemManager extends EventEmitter {
   _scheduleReconnect() {
     clearTimeout(this._reconnectTimer);
     if (!this._ip) return;
-    console.log('[ATEM] Reconnecting in 1.5s...');
+    console.log('[ATEM] Reconnecting in 3s...');
     this._reconnectTimer = setTimeout(() => {
       if (this._status !== 'connected' && this._ip) {
         this.connect(this._ip);
       }
-    }, 1500);
+    }, 3000);
+  }
+
+  _startWatchdog() {
+    clearInterval(this._watchdogTimer);
+    this._watchdogTimer = setInterval(() => {
+      if (!this._isConnected()) return;
+      const elapsed = Date.now() - this._lastActivityTime;
+      if (elapsed > WATCHDOG_TIMEOUT_MS) {
+        console.warn(`[ATEM] No activity for ${Math.round(elapsed / 1000)}s — forcing reconnect`);
+        this.disconnect(false).then(() => this._scheduleReconnect());
+      }
+    }, WATCHDOG_INTERVAL_MS);
   }
 
   _setStatus(status, message = '') {
@@ -238,23 +280,26 @@ class AtemManager extends EventEmitter {
         if (srcKeys.length === 0) continue;
         const props = sources[srcKeys[0]]?.properties ?? {};
         const gainDb = (props.faderGain ?? 0) / 100;
-        // On first connect, non-Mic1 channels default to silent so no accidental audio blast.
+        // On first connect, MIC 1 defaults to safe values to avoid accidental blast.
+        // All other channels use actual ATEM device values immediately.
         // After _defaultApplied is set, all subsequent state updates use actual ATEM values.
         const isMic1 = idx === '1301';
-        const useActual = isMic1 || this._defaultApplied;
+        const useActual = !isMic1 || this._defaultApplied;
         channels[idx] = {
           gain:      useActual ? gainDb : -60,
           balance:   (props.balance  ?? 0) / 200,
-          mixOption: useActual ? (props.mixOption ?? 0) : 0,  // 0 = MixOption.Off
+          mixOption: useActual ? fairlightMixToInternal(props.mixOption ?? 1) : 0,
           label:     this._getChannelLabel(Number(idx)),
         };
       }
+      const wasDefaultApplied = this._defaultApplied;
       this._defaultApplied = true;
       // If channels populated, return Fairlight state
       if (Object.keys(channels).length > 0) {
         const masterProps = this._state.fairlight.master?.properties ?? {};
+        const masterGainDb = (masterProps.faderGain ?? 0) / 100;
         const master = {
-          gain:              (masterProps.faderGain ?? 0) / 100,
+          gain:              wasDefaultApplied ? masterGainDb : 0,
           balance:           0,
           followFadeToBlack: masterProps.followFadeToBlack ?? false,
         };
@@ -349,7 +394,7 @@ class AtemManager extends EventEmitter {
     if (this._isFairlight()) {
       const src = this._getFairlightSourceKey(index);
       if (src !== null)
-        await this._atem.setFairlightAudioMixerSourceProps(index, BigInt(src), { mixOption });
+        await this._atem.setFairlightAudioMixerSourceProps(index, BigInt(src), { mixOption: internalMixToFairlight(mixOption) });
     } else {
       await this._atem.setClassicAudioMixerInputProps(index, { mixOption });
     }

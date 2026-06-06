@@ -45,6 +45,21 @@ public class AtemConnection {
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int RECONNECT_DELAY_MS = 5000;
 
+    // Fairlight protocol (FASP byte 49 / CFSP byte 44): Off=1, On=2, AFV=4
+    // Internal (matches client MixOption constants):    Off=0, On=1, AFV=4
+    private static int fairlightMixToInternal(int raw) {
+        if (raw == 1) return 0; // Fairlight Off → internal Off
+        if (raw == 2) return 1; // Fairlight On  → internal On
+        if (raw == 4) return 4; // Fairlight AFV → internal AFV
+        return 0;
+    }
+    private static int internalMixToFairlight(int internal) {
+        if (internal == 0) return 1; // internal Off → Fairlight Off
+        if (internal == 1) return 2; // internal On  → Fairlight On
+        if (internal == 4) return 4; // internal AFV → Fairlight AFV
+        return 1;
+    }
+
     // Throttle constants — prevent main-thread flooding
     private static final long VU_EMIT_INTERVAL_MS    = 80;   // max ~12 fps VU meter
     private static final long VIDEO_EMIT_INTERVAL_MS = 50;   // max ~20 fps video state
@@ -540,7 +555,8 @@ public class AtemConnection {
             balance = balRaw / 200.0;
         }
         if (p.length >= 50) {
-            mixOpt = p[49] & 0xFF;
+            // Fairlight protocol: Off=1, On=2, AFV=4 — normalize to internal (Off=0, On=1, AFV=4)
+            mixOpt = fairlightMixToInternal(p[49] & 0xFF);
         }
 
         // Source BigInt64 at bytes 8-15 (matches atem-connection library FairlightMixerSourceUpdateCommand)
@@ -1071,8 +1087,8 @@ public class AtemConnection {
 
     public void sendAudioInputMixOption(int ch, int mixOption) {
         if (isFairlight) {
-            // CFSP mask: mixOption = 1<<8 = 0x0100
-            sendFairlightSourceProps(ch, 0x0100, mixOption, 0, 0, 0);
+            // CFSP mask: mixOption = 1<<8 = 0x0100 — convert internal (0/1/4) to Fairlight (1/2/4)
+            sendFairlightSourceProps(ch, 0x0100, internalMixToFairlight(mixOption), 0, 0, 0);
         } else {
             // CAMI mask: mixOption = 1<<0 = 0x01
             byte[] p = new byte[12];
