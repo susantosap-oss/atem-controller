@@ -52,12 +52,17 @@ public class M32Connection {
         void onBusConfig(JSObject config);
         void onAuxInNames(JSObject names);
         void onFxRtnNames(JSObject names);
+        void onChannelOn(String ch, boolean on);
+        void onDcaNames(JSObject names);
+        void onDcaOn(String dca, boolean on);
         void onSendLevel(String ch, String bus, double level, boolean on);
         void onSendOn(String ch, String bus, double level, boolean on);
         void onSendPre(String ch, String bus, boolean pre);
         void onBusLevel(String bus, double level, boolean on);
         void onBusOn(String bus, double level, boolean on);
         void onInputMeters(JSObject meters);
+        void onAuxInMeters(JSObject meters);
+        void onFxRtnMeters(JSObject meters);
         void onBusMeters(JSObject meters);
     }
 
@@ -79,6 +84,9 @@ public class M32Connection {
     private final Map<String, Boolean>  busMono      = new HashMap<>();
     private final Map<String, String>   auxInNames   = new HashMap<>();
     private final Map<String, String>   fxRtnNames   = new HashMap<>();
+    private final Map<String, Boolean>  channelOn    = new HashMap<>(); // "ch" → master mute state (/ch/NN/mix/on)
+    private final Map<String, String>   dcaNames     = new HashMap<>(); // "01".."08" → name
+    private final Map<String, Boolean>  dcaOn        = new HashMap<>(); // "01".."08" → mute state (/dca/N/on)
     private final Map<String, double[]> sendLevels   = new HashMap<>(); // "ch:bus" → [level, on]
     private final Map<String, Boolean>  sendPre      = new HashMap<>(); // "ch:bus" → pre
     private final Map<String, double[]> busLevels    = new HashMap<>(); // bus      → [level, on]
@@ -209,6 +217,7 @@ public class M32Connection {
     private void sendXremote() { sendNoArgs("/xremote"); }
     private void pollMeters() {
         sendString("/meters", "/meters/1");
+        sendString("/meters", "/meters/2");
         sendString("/meters", "/meters/5");
     }
 
@@ -353,6 +362,37 @@ public class M32Connection {
             return;
         }
 
+        // /dca/N/config/name
+        if (addr.matches("^/dca/\\d+/config/name$")) {
+            String[] p    = addr.split("/");
+            String   dca  = String.format("%02d", Integer.parseInt(p[2]));
+            String   name = a0 instanceof String ? ((String) a0).trim() : "";
+            if (name.isEmpty()) name = "DCA " + Integer.parseInt(dca);
+            dcaNames.put(dca, name);
+            emitDcaNames();
+            return;
+        }
+
+        // /dca/N/on  — DCA group mute (1=active, 0=muted)
+        if (addr.matches("^/dca/\\d+/on$")) {
+            String[] p   = addr.split("/");
+            String   dca = String.format("%02d", Integer.parseInt(p[2]));
+            boolean  on  = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            dcaOn.put(dca, on);
+            mainHandler.post(() -> listener.onDcaOn(dca, on));
+            return;
+        }
+
+        // /ch/NN/mix/on  — channel master mute (distinct from /ch/NN/mix/MM/on per-bus send)
+        if (addr.matches("^/ch/\\d+/mix/on$")) {
+            String[] p  = addr.split("/");
+            String   ch = p[2];
+            boolean  on = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            channelOn.put(ch, on);
+            mainHandler.post(() -> listener.onChannelOn(ch, on));
+            return;
+        }
+
         // /bus/NN/config/name
         if (addr.matches("^/bus/\\d+/config/name$")) {
             String[] p    = addr.split("/");
@@ -464,6 +504,29 @@ public class M32Connection {
             return;
         }
 
+        // /meters/2  — 8 AuxIn + 4 FxRtn = 12 channels
+        if (addr.equals("/meters/2") && a0 instanceof byte[]) {
+            JSObject m = parseMeterBlob((byte[]) a0, 12);
+            if (m != null) {
+                JSObject auxIn = new JSObject();
+                JSObject fxRtn = new JSObject();
+                for (int i = 1; i <= 8; i++) {
+                    String key = String.format("%02d", i);
+                    Object ch = m.opt(key);
+                    if (ch instanceof JSObject) auxIn.put(key, (JSObject) ch);
+                }
+                for (int i = 1; i <= 4; i++) {
+                    String srcKey = String.format("%02d", i + 8);
+                    String dstKey = String.format("%02d", i);
+                    Object ch = m.opt(srcKey);
+                    if (ch instanceof JSObject) fxRtn.put(dstKey, (JSObject) ch);
+                }
+                if (auxIn.length() > 0) mainHandler.post(() -> listener.onAuxInMeters(auxIn));
+                if (fxRtn.length() > 0) mainHandler.post(() -> listener.onFxRtnMeters(fxRtn));
+            }
+            return;
+        }
+
         // /meters/5  — 16 bus channels
         if (addr.equals("/meters/5") && a0 instanceof byte[]) {
             JSObject m = parseMeterBlob((byte[]) a0, 16);
@@ -536,6 +599,7 @@ public class M32Connection {
         for (int i = 1; i <= 32; i++) {
             String ch = String.format("%02d", i);
             sendNoArgs("/ch/" + ch + "/config/name");
+            sendNoArgs("/ch/" + ch + "/mix/on");
         }
         for (int i = 1; i <= 8; i++) {
             String ch = String.format("%02d", i);
@@ -544,6 +608,10 @@ public class M32Connection {
         for (int i = 1; i <= 4; i++) {
             String ch = String.format("%02d", i);
             sendNoArgs("/fxrtn/" + ch + "/config/name");
+        }
+        for (int i = 1; i <= 8; i++) {
+            sendNoArgs("/dca/" + i + "/config/name");
+            sendNoArgs("/dca/" + i + "/on");
         }
         for (int i = 1; i <= 16; i++) {
             String b = String.format("%02d", i);
@@ -573,6 +641,18 @@ public class M32Connection {
     }
 
     // ── Control API ───────────────────────────────────────────
+
+    public void setDcaOn(String dca, boolean on) {
+        sendInt("/dca/" + Integer.parseInt(dca) + "/on", on ? 1 : 0);
+        dcaOn.put(dca, on);
+        mainHandler.post(() -> listener.onDcaOn(dca, on));
+    }
+
+    public void setChannelOn(String ch, boolean on) {
+        sendInt("/ch/" + ch + "/mix/on", on ? 1 : 0);
+        channelOn.put(ch, on);
+        mainHandler.post(() -> listener.onChannelOn(ch, on));
+    }
 
     public void setChannelSendLevel(String ch, String bus, float level) {
         float  clamped = Math.min(1f, Math.max(0f, level));
@@ -634,6 +714,12 @@ public class M32Connection {
         JSObject obj = new JSObject();
         for (Map.Entry<String, String> e : fxRtnNames.entrySet()) obj.put(e.getKey(), e.getValue());
         mainHandler.post(() -> listener.onFxRtnNames(obj));
+    }
+
+    private void emitDcaNames() {
+        JSObject obj = new JSObject();
+        for (Map.Entry<String, String> e : dcaNames.entrySet()) obj.put(e.getKey(), e.getValue());
+        mainHandler.post(() -> listener.onDcaNames(obj));
     }
 
     private void emitBusConfig() {

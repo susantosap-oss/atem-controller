@@ -37,11 +37,11 @@ export default function HomePage() {
   } = useATEM(socket);
 
   const {
-    m32Status, channelNames, busNames, busConfig,
+    m32Status, channelNames, busNames, busConfig, channelOn, dcaNames, dcaOn,
     sendLevels, sendPre, busLevels, inputVu, busVu,
     auxInNames, fxRtnNames, auxInSendLevels, fxRtnSendLevels, auxInVu, fxRtnVu,
     connectM32, disconnectM32,
-    setChannelSendLevel, setChannelSendOn, setBusLevel, setBusOn, queryBus,
+    setChannelOn, setDcaOn, setChannelSendLevel, setChannelSendOn, setBusLevel, setBusOn, queryBus,
     setAuxInSendLevel, setAuxInSendOn, setFxRtnSendLevel, setFxRtnSendOn,
   } = useM32(socket);
 
@@ -249,6 +249,9 @@ export default function HomePage() {
                   channelNames={channelNames}
                   busNames={busNames}
                   busConfig={busConfig}
+                  channelOn={channelOn}
+                  dcaNames={dcaNames}
+                  dcaOn={dcaOn}
                   sendLevels={sendLevels}
                   sendPre={sendPre}
                   busLevels={busLevels}
@@ -263,6 +266,8 @@ export default function HomePage() {
                   serverConnected={Capacitor.isNativePlatform() || socketStatus === 'connected'}
                   onConnect={connectM32}
                   onDisconnect={disconnectM32}
+                  onChannelOn={setChannelOn}
+                  onDcaOn={setDcaOn}
                   onChannelSendLevel={setChannelSendLevel}
                   onChannelSendOn={setChannelSendOn}
                   onBusLevel={setBusLevel}

@@ -35,6 +35,9 @@ export interface M32State {
   channelNames:     Record<string, string>;            // '01'..'32'
   busNames:         Record<string, string>;            // '01'..'16'
   busConfig:        Record<string, { mono: boolean }>; // '01'..'16'
+  channelOn:        Record<string, boolean>;           // '01'..'32', channel master mute (/ch/NN/mix/on)
+  dcaNames:         Record<string, string>;            // '01'..'08'
+  dcaOn:            Record<string, boolean>;           // '01'..'08', DCA group mute (/dca/N/on — true=active, false=muted)
   sendLevels:       Record<string, M32SendEntry>;      // 'ch:bus' key
   sendPre:          Record<string, boolean>;           // 'ch:bus' key, true=pre-fader
   busLevels:        Record<string, M32BusEntry>;       // '01'..'16'
@@ -79,6 +82,9 @@ export function useM32(socket: Socket | null) {
   const [channelNames, setChannelNames] = useState<Record<string, string>>(DEFAULT_CHANNEL_NAMES);
   const [busNames, setBusNames]         = useState<Record<string, string>>({});
   const [busConfig, setBusConfig]       = useState<Record<string, { mono: boolean }>>({});
+  const [channelOn, setChannelOnMap]    = useState<Record<string, boolean>>({});
+  const [dcaNames, setDcaNames]         = useState<Record<string, string>>({});
+  const [dcaOn, setDcaOnMap]            = useState<Record<string, boolean>>({});
   const [sendLevels, setSendLevels]     = useState<Record<string, M32SendEntry>>({});
   const [sendPre, setSendPre]           = useState<Record<string, boolean>>({});
   const [busLevels, setBusLevels]       = useState<Record<string, M32BusEntry>>({});
@@ -291,6 +297,13 @@ export function useM32(socket: Socket | null) {
       await addL('m32:busConfig',    (d: Record<string, { mono: boolean }>) => setBusConfig(d));
       await addL('m32:auxInNames',   (d: Record<string, string>) => setAuxInNames(d));
       await addL('m32:fxRtnNames',   (d: Record<string, string>) => setFxRtnNames(d));
+      await addL('m32:channelOn', (d: { ch: string; on: boolean }) => {
+        setChannelOnMap(prev => ({ ...prev, [d.ch]: d.on }));
+      });
+      await addL('m32:dcaNames', (d: Record<string, string>) => setDcaNames(d));
+      await addL('m32:dcaOn', (d: { dca: string; on: boolean }) => {
+        setDcaOnMap(prev => ({ ...prev, [d.dca]: d.on }));
+      });
       await addL('m32:sendLevel', (d: { ch: string; bus: string; level: number; on: boolean }) => {
         setSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
       });
@@ -355,6 +368,13 @@ export function useM32(socket: Socket | null) {
     const onBusNames     = (d: Record<string, string>) => setBusNames(d);
     const onBusConfig    = (d: Record<string, { mono: boolean }>) => setBusConfig(d);
 
+    const onChannelOn = (d: { ch: string; on: boolean }) => {
+      setChannelOnMap(prev => ({ ...prev, [d.ch]: d.on }));
+    };
+    const onDcaNames = (d: Record<string, string>) => setDcaNames(d);
+    const onDcaOn = (d: { dca: string; on: boolean }) => {
+      setDcaOnMap(prev => ({ ...prev, [d.dca]: d.on }));
+    };
     const onSendLevel = (d: { ch: string; bus: string; level: number; on: boolean }) => {
       setSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
     };
@@ -399,6 +419,9 @@ export function useM32(socket: Socket | null) {
     socket.on('m32:channelNames',    onChannelNames);
     socket.on('m32:busNames',        onBusNames);
     socket.on('m32:busConfig',       onBusConfig);
+    socket.on('m32:channelOn',       onChannelOn);
+    socket.on('m32:dcaNames',        onDcaNames);
+    socket.on('m32:dcaOn',           onDcaOn);
     socket.on('m32:sendLevel',       onSendLevel);
     socket.on('m32:sendOn',          onSendOn);
     socket.on('m32:busLevel',        onBusLevel);
@@ -420,6 +443,9 @@ export function useM32(socket: Socket | null) {
       socket.off('m32:channelNames',   onChannelNames);
       socket.off('m32:busNames',       onBusNames);
       socket.off('m32:busConfig',      onBusConfig);
+      socket.off('m32:channelOn',      onChannelOn);
+      socket.off('m32:dcaNames',       onDcaNames);
+      socket.off('m32:dcaOn',          onDcaOn);
       socket.off('m32:sendLevel',      onSendLevel);
       socket.off('m32:sendOn',         onSendOn);
       socket.off('m32:busLevel',       onBusLevel);
@@ -454,6 +480,24 @@ export function useM32(socket: Socket | null) {
       socket?.emit('m32:disconnect');
     }
     setM32Status({ status: 'disconnected' });
+  }, [socket]);
+
+  const setDcaOn = useCallback((dca: string, on: boolean) => {
+    if (IS_NATIVE) {
+      M32Native.setDcaOn({ dca, on });
+    } else {
+      socket?.emit('m32:setDcaOn', { dca, on });
+    }
+    setDcaOnMap(prev => ({ ...prev, [dca]: on }));
+  }, [socket]);
+
+  const setChannelOn = useCallback((ch: string, on: boolean) => {
+    if (IS_NATIVE) {
+      M32Native.setChannelOn({ ch, on });
+    } else {
+      socket?.emit('m32:setChannelOn', { ch, on });
+    }
+    setChannelOnMap(prev => ({ ...prev, [ch]: on }));
   }, [socket]);
 
   const setChannelSendLevel = useCallback((ch: string, bus: string, level: number) => {
@@ -549,6 +593,9 @@ export function useM32(socket: Socket | null) {
     channelNames,
     busNames,
     busConfig,
+    channelOn,
+    dcaNames,
+    dcaOn,
     sendLevels,
     sendPre,
     busLevels,
@@ -562,6 +609,8 @@ export function useM32(socket: Socket | null) {
     fxRtnVu,
     connectM32,
     disconnectM32,
+    setChannelOn,
+    setDcaOn,
     setChannelSendLevel,
     setChannelSendOn,
     setBusLevel,

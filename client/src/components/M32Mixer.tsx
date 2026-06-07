@@ -59,6 +59,9 @@ interface M32MixerProps {
   channelNames:   Record<string, string>;
   busNames:       Record<string, string>;
   busConfig:      Record<string, { mono: boolean }>;
+  channelOn:      Record<string, boolean>;
+  dcaNames:       Record<string, string>;
+  dcaOn:          Record<string, boolean>;
   sendLevels:     Record<string, M32SendEntry>;
   sendPre:        Record<string, boolean>;
   busLevels:      Record<string, M32BusEntry>;
@@ -73,6 +76,8 @@ interface M32MixerProps {
   serverConnected: boolean;
   onConnect:      (ip: string) => void;
   onDisconnect:   () => void;
+  onChannelOn:         (ch: string, on: boolean) => void;
+  onDcaOn:             (dca: string, on: boolean) => void;
   onChannelSendLevel:  (ch: string, bus: string, level: number) => void;
   onChannelSendOn:     (ch: string, bus: string, on: boolean) => void;
   onBusLevel:     (bus: string, level: number) => void;
@@ -96,6 +101,7 @@ const DEFAULT_BUSES = new Set([5, 6]);
 const CH_KEYS     = Array.from({ length: 32 }, (_, i) => String(i + 1).padStart(2, '0'));
 const AUXIN_KEYS  = Array.from({ length:  8 }, (_, i) => String(i + 1).padStart(2, '0'));
 const FXRTN_KEYS  = Array.from({ length:  4 }, (_, i) => String(i + 1).padStart(2, '0'));
+const DCA_KEYS    = Array.from({ length:  8 }, (_, i) => String(i + 1).padStart(2, '0'));
 const BUS_NUMS = Array.from({ length: 16 }, (_, i) => i + 1);
 
 // ── Send fader (compact vertical, one per bus) ────────────────
@@ -215,21 +221,24 @@ function SendFader({
 // ── Channel strip ─────────────────────────────────────────────
 
 function M32ChannelStrip({
-  chKey, name, selectedBuses, sendLevels, sendPre, vu, disabled,
-  onSendLevel, onSendOn,
+  chKey, name, selectedBuses, channelOn, sendLevels, sendPre, vu, disabled,
+  onChannelOn, onSendLevel, onSendOn,
 }: {
   chKey:         string;
   name:          string;
   selectedBuses: number[];
+  channelOn?:    boolean;
   sendLevels:    Record<string, M32SendEntry>;
   sendPre:       Record<string, boolean>;
   vu?:           LevelData;
   disabled:      boolean;
+  onChannelOn?:  (ch: string, on: boolean) => void;
   onSendLevel:   (ch: string, bus: string, v: number) => void;
   onSendOn:      (ch: string, bus: string, on: boolean) => void;
 }) {
   const numBuses = selectedBuses.length;
   const totalW   = 20 + numBuses * 36;   // VU(20) + per-bus(36)
+  const isMuted  = channelOn === false;  // undefined = belum diketahui dari device
 
   return (
     <div
@@ -246,6 +255,23 @@ function M32ChannelStrip({
           {name}
         </span>
       </div>
+
+      {/* Channel master mute (mirrors physical ON button on M32 console) */}
+      {onChannelOn && (
+        <button
+          disabled={disabled}
+          onClick={() => !disabled && onChannelOn(chKey, isMuted)}
+          title="Channel master ON/MUTE (mirrors device console)"
+          className={`text-[8px] font-bold rounded py-0.5 w-full mb-1 transition-colors
+            ${disabled
+              ? 'bg-navy-800 text-navy-600'
+              : isMuted
+                ? 'bg-red-600 text-white shadow-[0_0_4px_#dc2626]'
+                : 'bg-navy-800 text-green-400 border border-green-700/40'}`}
+        >
+          {isMuted ? 'MUTED' : 'ON'}
+        </button>
+      )}
 
       {/* VU + faders side-by-side */}
       <div className="flex items-end gap-1">
@@ -419,6 +445,9 @@ export default function M32Mixer({
   channelNames,
   busNames,
   busConfig,
+  channelOn,
+  dcaNames,
+  dcaOn,
   sendLevels,
   sendPre,
   busLevels,
@@ -433,6 +462,8 @@ export default function M32Mixer({
   serverConnected,
   onConnect,
   onDisconnect,
+  onChannelOn,
+  onDcaOn,
   onChannelSendLevel,
   onChannelSendOn,
   onBusLevel,
@@ -715,6 +746,36 @@ export default function M32Mixer({
         </button>
       </div>
 
+      {/* ── DCA group mute row ─────────────────────────────── */}
+      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-navy-900/60
+                      border-b border-navy-700/50 shrink-0 overflow-x-auto">
+        <span className="text-[9px] text-navy-600 uppercase tracking-widest shrink-0 mr-1">
+          DCA
+        </span>
+        {DCA_KEYS.map(dcaKey => {
+          const on     = dcaOn[dcaKey];
+          const muted  = on === false;
+          const name   = dcaNames[dcaKey] || `DCA ${parseInt(dcaKey)}`;
+          return (
+            <button
+              key={dcaKey}
+              disabled={disabled}
+              onClick={() => !disabled && onDcaOn(dcaKey, muted)}
+              title={`${name} — klik untuk ${muted ? 'aktifkan' : 'mute'} (mirrors device console)`}
+              className={`shrink-0 rounded text-[9px] font-bold px-1.5 h-6 border transition-colors
+                truncate max-w-[72px]
+                ${disabled
+                  ? 'bg-navy-800 text-navy-600 border-navy-700'
+                  : muted
+                    ? 'bg-red-600 text-white border-red-400 shadow-[0_0_4px_#dc2626]'
+                    : 'bg-navy-800 text-green-400 border-green-700/40'}`}
+            >
+              {name}
+            </button>
+          );
+        })}
+      </div>
+
       {/* ── Mixer area ─────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden relative">
 
@@ -757,10 +818,12 @@ export default function M32Mixer({
                   chKey={chKey}
                   name={channelNames[chKey] || `CH ${parseInt(chKey)}`}
                   selectedBuses={sortedBuses}
+                  channelOn={channelOn[chKey]}
                   sendLevels={sendLevels}
                   sendPre={sendPre}
                   vu={inputVu[chKey]}
                   disabled={disabled}
+                  onChannelOn={onChannelOn}
                   onSendLevel={onChannelSendLevel}
                   onSendOn={onChannelSendOn}
                 />

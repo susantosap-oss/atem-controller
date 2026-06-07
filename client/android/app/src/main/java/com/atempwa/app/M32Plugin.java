@@ -12,7 +12,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  *   m32:status, m32:channelNames, m32:busNames, m32:busConfig,
  *   m32:sendLevel, m32:sendOn, m32:sendPre,
  *   m32:busLevel, m32:busOn,
- *   m32:inputMeters (throttled ~30fps), m32:busMeters (throttled ~30fps)
+ *   m32:inputMeters, m32:auxInMeters, m32:fxRtnMeters, m32:busMeters (all throttled ~30fps)
  */
 @CapacitorPlugin(name = "M32")
 public class M32Plugin extends Plugin implements M32Connection.Listener {
@@ -22,6 +22,8 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
     // Throttle meter events to ~30fps (33ms) to avoid flooding Capacitor JS bridge
     private static final long METER_THROTTLE_MS = 33;
     private long lastInputMeterEmit = 0;
+    private long lastAuxInMeterEmit = 0;
+    private long lastFxRtnMeterEmit = 0;
     private long lastBusMeterEmit   = 0;
 
     // ── Plugin methods (called from JS) ───────────────────────
@@ -62,6 +64,24 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
         String  bus = call.getString("bus", "01");
         boolean on  = Boolean.TRUE.equals(call.getBoolean("on", true));
         m32.setChannelSendOn(ch, bus, on);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setChannelOn(PluginCall call) {
+        if (!checkConnected(call)) return;
+        String  ch = call.getString("ch", "01");
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", true));
+        m32.setChannelOn(ch, on);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setDcaOn(PluginCall call) {
+        if (!checkConnected(call)) return;
+        String  dca = call.getString("dca", "01");
+        boolean on  = Boolean.TRUE.equals(call.getBoolean("on", true));
+        m32.setDcaOn(dca, on);
         call.resolve();
     }
 
@@ -128,6 +148,27 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
     }
 
     @Override
+    public void onChannelOn(String ch, boolean on) {
+        JSObject data = new JSObject();
+        data.put("ch", ch);
+        data.put("on", on);
+        notifyListeners("m32:channelOn", data);
+    }
+
+    @Override
+    public void onDcaNames(JSObject names) {
+        notifyListeners("m32:dcaNames", names);
+    }
+
+    @Override
+    public void onDcaOn(String dca, boolean on) {
+        JSObject data = new JSObject();
+        data.put("dca", dca);
+        data.put("on", on);
+        notifyListeners("m32:dcaOn", data);
+    }
+
+    @Override
     public void onSendLevel(String ch, String bus, double level, boolean on) {
         JSObject data = new JSObject();
         data.put("ch",    ch);
@@ -180,6 +221,22 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
         if (now - lastInputMeterEmit < METER_THROTTLE_MS) return;
         lastInputMeterEmit = now;
         notifyListeners("m32:inputMeters", meters);
+    }
+
+    @Override
+    public void onAuxInMeters(JSObject meters) {
+        long now = System.currentTimeMillis();
+        if (now - lastAuxInMeterEmit < METER_THROTTLE_MS) return;
+        lastAuxInMeterEmit = now;
+        notifyListeners("m32:auxInMeters", meters);
+    }
+
+    @Override
+    public void onFxRtnMeters(JSObject meters) {
+        long now = System.currentTimeMillis();
+        if (now - lastFxRtnMeterEmit < METER_THROTTLE_MS) return;
+        lastFxRtnMeterEmit = now;
+        notifyListeners("m32:fxRtnMeters", meters);
     }
 
     @Override

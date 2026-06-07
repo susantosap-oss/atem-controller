@@ -195,6 +195,9 @@ class M32Manager extends EventEmitter {
     this.busNames        = {};   // '01'..'16' → string
     this.busConfig       = {};   // '01'..'16' → { mono: bool }
     this.sendLevels      = {};   // 'ch:bus'   → { level, on }
+    this.channelOn       = {};   // '01'..'32' → bool (channel master mute, /ch/NN/mix/on)
+    this.dcaNames        = {};   // '01'..'08' → string
+    this.dcaOn           = {};   // '01'..'08' → bool (DCA group mute state, /dca/N/on — 1=active, 0=muted)
     this.busLevels       = {};   // '01'..'16' → { level, on }
     this.auxInNames      = {};   // '01'..'08' → string
     this.fxRtnNames      = {};   // '01'..'04' → string
@@ -266,6 +269,7 @@ class M32Manager extends EventEmitter {
     for (let i = 1; i <= 32; i++) {
       const ch = String(i).padStart(2, '0');
       this._send(`/ch/${ch}/config/name`);
+      this._send(`/ch/${ch}/mix/on`);
     }
     for (let i = 1; i <= 8; i++) {
       const ch = String(i).padStart(2, '0');
@@ -274,6 +278,10 @@ class M32Manager extends EventEmitter {
     for (let i = 1; i <= 4; i++) {
       const ch = String(i).padStart(2, '0');
       this._send(`/fxrtn/${ch}/config/name`);
+    }
+    for (let i = 1; i <= 8; i++) {
+      this._send(`/dca/${i}/config/name`);
+      this._send(`/dca/${i}/on`);
     }
     for (let i = 1; i <= 16; i++) {
       const b = String(i).padStart(2, '0');
@@ -322,6 +330,33 @@ class M32Manager extends EventEmitter {
       const ch = mChName[1];
       this.channelNames[ch] = (a0?.value || '').trim() || `CH ${parseInt(ch)}`;
       this.emit('channelNames', { ...this.channelNames });
+      return;
+    }
+
+    // Channel master mute  /ch/NN/mix/on  (0=muted, 1=on) — distinct from /ch/NN/mix/MM/on (per-bus send)
+    const mChOn = address.match(/^\/ch\/(\d+)\/mix\/on$/);
+    if (mChOn) {
+      const ch = mChOn[1];
+      this.channelOn[ch] = a0?.value === 1;
+      this.emit('channelOn', { ch, on: this.channelOn[ch] });
+      return;
+    }
+
+    // DCA group name  /dca/N/config/name
+    const mDcaName = address.match(/^\/dca\/(\d+)\/config\/name$/);
+    if (mDcaName) {
+      const dca = String(parseInt(mDcaName[1])).padStart(2, '0');
+      this.dcaNames[dca] = (a0?.value || '').trim() || `DCA ${parseInt(dca)}`;
+      this.emit('dcaNames', { ...this.dcaNames });
+      return;
+    }
+
+    // DCA group mute  /dca/N/on  (1=active, 0=muted)
+    const mDcaOn = address.match(/^\/dca\/(\d+)\/on$/);
+    if (mDcaOn) {
+      const dca = String(parseInt(mDcaOn[1])).padStart(2, '0');
+      this.dcaOn[dca] = a0?.value === 1;
+      this.emit('dcaOn', { dca, on: this.dcaOn[dca] });
       return;
     }
 
@@ -501,6 +536,18 @@ class M32Manager extends EventEmitter {
     if (!this.sendLevels[key]) this.sendLevels[key] = { level: 0.75, on: true };
     this.sendLevels[key].on = !!on;
     this.emit('sendOn', { ch, bus, ...this.sendLevels[key] });
+  }
+
+  setChannelOn(ch, on) {
+    this._send(`/ch/${ch}/mix/on`, [{ type: 'i', value: on ? 1 : 0 }]);
+    this.channelOn[ch] = !!on;
+    this.emit('channelOn', { ch, on: this.channelOn[ch] });
+  }
+
+  setDcaOn(dca, on) {
+    this._send(`/dca/${parseInt(dca)}/on`, [{ type: 'i', value: on ? 1 : 0 }]);
+    this.dcaOn[dca] = !!on;
+    this.emit('dcaOn', { dca, on: this.dcaOn[dca] });
   }
 
   setBusLevel(bus, level) {

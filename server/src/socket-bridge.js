@@ -74,6 +74,9 @@ function start(port) {
   m32Manager.on('busConfig',        (d) => io.emit('m32:busConfig',        d));
   m32Manager.on('sendLevel',        (d) => io.emit('m32:sendLevel',        d));
   m32Manager.on('sendOn',           (d) => io.emit('m32:sendOn',           d));
+  m32Manager.on('channelOn',        (d) => io.emit('m32:channelOn',        d));
+  m32Manager.on('dcaNames',         (d) => io.emit('m32:dcaNames',         d));
+  m32Manager.on('dcaOn',            (d) => io.emit('m32:dcaOn',            d));
   m32Manager.on('busLevel',         (d) => io.emit('m32:busLevel',         d));
   m32Manager.on('busOn',            (d) => io.emit('m32:busOn',            d));
   m32Manager.on('auxInNames',       (d) => io.emit('m32:auxInNames',       d));
@@ -120,6 +123,12 @@ function start(port) {
         const [ch, bus] = key.split(':');
         socket.emit('m32:sendLevel', { ch, bus, ...data });
       }
+      for (const [ch, on] of Object.entries(m32Manager.channelOn))
+        socket.emit('m32:channelOn', { ch, on });
+      if (Object.keys(m32Manager.dcaNames).length)
+        socket.emit('m32:dcaNames', m32Manager.dcaNames);
+      for (const [dca, on] of Object.entries(m32Manager.dcaOn))
+        socket.emit('m32:dcaOn', { dca, on });
       if (Object.keys(m32Manager.auxInNames).length)
         socket.emit('m32:auxInNames', m32Manager.auxInNames);
       if (Object.keys(m32Manager.fxRtnNames).length)
@@ -244,6 +253,14 @@ function start(port) {
 
     socket.on('m32:setChannelSendOn', ({ ch, bus, on }) => {
       m32Manager.setChannelSendOn(ch, bus, on);
+    });
+
+    socket.on('m32:setChannelOn', ({ ch, on }) => {
+      m32Manager.setChannelOn(ch, on);
+    });
+
+    socket.on('m32:setDcaOn', ({ dca, on }) => {
+      m32Manager.setDcaOn(dca, on);
     });
 
     socket.on('m32:setBusLevel', ({ bus, level }) => {
