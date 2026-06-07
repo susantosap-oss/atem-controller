@@ -179,6 +179,26 @@ function parseMeterBlob(blob, numCh) {
   } catch (_) { return null; }
 }
 
+// One-shot raw dump of a /meters/N blob: byte length, parsed LE int32 header,
+// detected stride, and every float value (raw linear + dBFS). Logged once per
+// connection so a live session can capture ground-truth data to verify/fix
+// the assumed channel-block layout (see m32-manager.js /meters/2 handler).
+function logMeterBlobOnce(label, blob) {
+  if (!blob || blob.length < 8) { console.log(`[M32][meter-debug] ${label}: blob too short (${blob?.length ?? 0}B)`); return; }
+  const countLE  = blob.readInt32LE(0);
+  const expected = countLE * 4;
+  const offset   = (expected > 0 && expected <= blob.length - 4) ? 4 : 0;
+  const maxFloats = Math.floor((blob.length - offset) / 4);
+  const floats = [];
+  for (let i = 0; i < maxFloats; i++) {
+    const lo = offset + i * 4;
+    if (lo + 4 > blob.length) break;
+    const v = blob.readFloatLE(lo);
+    floats.push(`[${i}] ${v.toFixed(6)} (${linToDbFS(v).toFixed(1)}dB)`);
+  }
+  console.log(`[M32][meter-debug] ${label}: blobLen=${blob.length}B countHeader=${countLE} offset=${offset} floats(${floats.length})=\n  ${floats.join('\n  ')}`);
+}
+
 // ── M32Manager ───────────────────────────────────────────────
 
 class M32Manager extends EventEmitter {
@@ -201,6 +221,14 @@ class M32Manager extends EventEmitter {
     this.busLevels       = {};   // '01'..'16' → { level, on }
     this.auxInNames      = {};   // '01'..'08' → string
     this.fxRtnNames      = {};   // '01'..'04' → string
+    this.auxInOn         = {};   // '01'..'08' → bool (channel master mute, /auxin/NN/mix/on)
+    this.fxRtnOn         = {};   // '01'..'04' → bool (channel master mute, /fxrtn/NN/mix/on)
+
+    // One-shot raw meter-blob dump per connection — temporary diagnostic to
+    // verify the assumed /meters/2 layout (8 AuxIn + 4 FxRtn) against what the
+    // device actually sends (see live-test report: AuxIn shows phantom signal,
+    // FxRtn 3/4 missing signal — current mapping may be wrong).
+    this._meterBlobLogged = new Set();
     this.auxInSendLevels = {};   // 'ch:bus'   → { level, on }
     this.fxRtnSendLevels = {};   // 'ch:bus'   → { level, on }
   }
@@ -208,6 +236,7 @@ class M32Manager extends EventEmitter {
   connect(ip) {
     if (this._sock) this._cleanup();
     this._ip = ip;
+    this._meterBlobLogged.clear();
     this._setStatus('connecting');
 
     const sock = dgram.createSocket('udp4');
@@ -274,10 +303,12 @@ class M32Manager extends EventEmitter {
     for (let i = 1; i <= 8; i++) {
       const ch = String(i).padStart(2, '0');
       this._send(`/auxin/${ch}/config/name`);
+      this._send(`/auxin/${ch}/mix/on`);
     }
     for (let i = 1; i <= 4; i++) {
       const ch = String(i).padStart(2, '0');
       this._send(`/fxrtn/${ch}/config/name`);
+      this._send(`/fxrtn/${ch}/mix/on`);
     }
     for (let i = 1; i <= 8; i++) {
       this._send(`/dca/${i}/config/name`);
@@ -394,7 +425,28 @@ class M32Manager extends EventEmitter {
     if (mFxName) {
       const ch = mFxName[1];
       this.fxRtnNames[ch] = (a0?.value || '').trim() || `FxRtn ${parseInt(ch)}`;
+      // Diagnostic: live test reported FxRtn name order doesn't match the device
+      // console (Plate/Hall/Delay/Muted) — log the raw OSC reply to compare.
+      console.log(`[M32][meter-debug] /fxrtn/${ch}/config/name → raw="${a0?.value}" (device console FX type assignment should be checked against this)`);
       this.emit('fxRtnNames', { ...this.fxRtnNames });
+      return;
+    }
+
+    // AuxIn master mute  /auxin/NN/mix/on  (0=muted, 1=on) — distinct from /auxin/NN/mix/MM/on (per-bus send)
+    const mAuxOn = address.match(/^\/auxin\/(\d+)\/mix\/on$/);
+    if (mAuxOn) {
+      const ch = mAuxOn[1];
+      this.auxInOn[ch] = a0?.value === 1;
+      this.emit('auxInOn', { ch, on: this.auxInOn[ch] });
+      return;
+    }
+
+    // FxRtn master mute  /fxrtn/NN/mix/on  (0=muted, 1=on) — distinct from /fxrtn/NN/mix/MM/on (per-bus send)
+    const mFxOn = address.match(/^\/fxrtn\/(\d+)\/mix\/on$/);
+    if (mFxOn) {
+      const ch = mFxOn[1];
+      this.fxRtnOn[ch] = a0?.value === 1;
+      this.emit('fxRtnOn', { ch, on: this.fxRtnOn[ch] });
       return;
     }
 
@@ -486,6 +538,10 @@ class M32Manager extends EventEmitter {
 
     // Input meters  /meters/1
     if (address === '/meters/1' && a0?.type === 'blob') {
+      if (!this._meterBlobLogged.has('/meters/1')) {
+        this._meterBlobLogged.add('/meters/1');
+        logMeterBlobOnce('/meters/1 (assumed: 32 input channels)', a0.value);
+      }
       const m = parseMeterBlob(a0.value, 32);
       if (m) this.emit('inputMeters', m);
       return;
@@ -493,6 +549,10 @@ class M32Manager extends EventEmitter {
 
     // AuxIn + FxRtn meters  /meters/2 (8 AuxIn + 4 FxRtn = 12 channels)
     if (address === '/meters/2' && a0?.type === 'blob') {
+      if (!this._meterBlobLogged.has('/meters/2')) {
+        this._meterBlobLogged.add('/meters/2');
+        logMeterBlobOnce('/meters/2 (ASSUMED: AuxIn1-8 then FxRtn1-4 — UNVERIFIED, compare against device console levels)', a0.value);
+      }
       const m = parseMeterBlob(a0.value, 12);
       if (m) {
         const auxIn = {}, fxRtn = {};
@@ -542,12 +602,6 @@ class M32Manager extends EventEmitter {
     this._send(`/ch/${ch}/mix/on`, [{ type: 'i', value: on ? 1 : 0 }]);
     this.channelOn[ch] = !!on;
     this.emit('channelOn', { ch, on: this.channelOn[ch] });
-  }
-
-  setDcaOn(dca, on) {
-    this._send(`/dca/${parseInt(dca)}/on`, [{ type: 'i', value: on ? 1 : 0 }]);
-    this.dcaOn[dca] = !!on;
-    this.emit('dcaOn', { dca, on: this.dcaOn[dca] });
   }
 
   setBusLevel(bus, level) {

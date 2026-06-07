@@ -53,6 +53,8 @@ public class M32Connection {
         void onAuxInNames(JSObject names);
         void onFxRtnNames(JSObject names);
         void onChannelOn(String ch, boolean on);
+        void onAuxInOn(String ch, boolean on);
+        void onFxRtnOn(String ch, boolean on);
         void onDcaNames(JSObject names);
         void onDcaOn(String dca, boolean on);
         void onSendLevel(String ch, String bus, double level, boolean on);
@@ -85,6 +87,8 @@ public class M32Connection {
     private final Map<String, String>   auxInNames   = new HashMap<>();
     private final Map<String, String>   fxRtnNames   = new HashMap<>();
     private final Map<String, Boolean>  channelOn    = new HashMap<>(); // "ch" → master mute state (/ch/NN/mix/on)
+    private final Map<String, Boolean>  auxInOn      = new HashMap<>(); // "ch" → master mute state (/auxin/NN/mix/on)
+    private final Map<String, Boolean>  fxRtnOn      = new HashMap<>(); // "ch" → master mute state (/fxrtn/NN/mix/on)
     private final Map<String, String>   dcaNames     = new HashMap<>(); // "01".."08" → name
     private final Map<String, Boolean>  dcaOn        = new HashMap<>(); // "01".."08" → mute state (/dca/N/on)
     private final Map<String, double[]> sendLevels   = new HashMap<>(); // "ch:bus" → [level, on]
@@ -426,6 +430,26 @@ public class M32Connection {
             return;
         }
 
+        // /auxin/NN/mix/on — master mute (distinct from /auxin/NN/mix/MM/on per-bus send)
+        if (addr.matches("^/auxin/\\d+/mix/on$")) {
+            String[] p  = addr.split("/");
+            String   ch = p[2];
+            boolean  on = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            auxInOn.put(ch, on);
+            mainHandler.post(() -> listener.onAuxInOn(ch, on));
+            return;
+        }
+
+        // /fxrtn/NN/mix/on — master mute (distinct from /fxrtn/NN/mix/MM/on per-bus send)
+        if (addr.matches("^/fxrtn/\\d+/mix/on$")) {
+            String[] p  = addr.split("/");
+            String   ch = p[2];
+            boolean  on = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            fxRtnOn.put(ch, on);
+            mainHandler.post(() -> listener.onFxRtnOn(ch, on));
+            return;
+        }
+
         // /bus/NN/config/ms  — 0=ST (linked stereo), 1=MS, 2=M (mono)
         if (addr.matches("^/bus/\\d+/config/ms$")) {
             String[] p    = addr.split("/");
@@ -604,10 +628,12 @@ public class M32Connection {
         for (int i = 1; i <= 8; i++) {
             String ch = String.format("%02d", i);
             sendNoArgs("/auxin/" + ch + "/config/name");
+            sendNoArgs("/auxin/" + ch + "/mix/on");
         }
         for (int i = 1; i <= 4; i++) {
             String ch = String.format("%02d", i);
             sendNoArgs("/fxrtn/" + ch + "/config/name");
+            sendNoArgs("/fxrtn/" + ch + "/mix/on");
         }
         for (int i = 1; i <= 8; i++) {
             sendNoArgs("/dca/" + i + "/config/name");
@@ -641,12 +667,6 @@ public class M32Connection {
     }
 
     // ── Control API ───────────────────────────────────────────
-
-    public void setDcaOn(String dca, boolean on) {
-        sendInt("/dca/" + Integer.parseInt(dca) + "/on", on ? 1 : 0);
-        dcaOn.put(dca, on);
-        mainHandler.post(() -> listener.onDcaOn(dca, on));
-    }
 
     public void setChannelOn(String ch, boolean on) {
         sendInt("/ch/" + ch + "/mix/on", on ? 1 : 0);

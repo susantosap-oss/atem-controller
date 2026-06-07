@@ -77,15 +77,6 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
     }
 
     @PluginMethod
-    public void setDcaOn(PluginCall call) {
-        if (!checkConnected(call)) return;
-        String  dca = call.getString("dca", "01");
-        boolean on  = Boolean.TRUE.equals(call.getBoolean("on", true));
-        m32.setDcaOn(dca, on);
-        call.resolve();
-    }
-
-    @PluginMethod
     public void setBusLevel(PluginCall call) {
         if (!checkConnected(call)) return;
         String bus   = call.getString("bus", "01");
@@ -153,6 +144,22 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
         data.put("ch", ch);
         data.put("on", on);
         notifyListeners("m32:channelOn", data);
+    }
+
+    @Override
+    public void onAuxInOn(String ch, boolean on) {
+        JSObject data = new JSObject();
+        data.put("ch", ch);
+        data.put("on", on);
+        notifyListeners("m32:auxInOn", data);
+    }
+
+    @Override
+    public void onFxRtnOn(String ch, boolean on) {
+        JSObject data = new JSObject();
+        data.put("ch", ch);
+        data.put("on", on);
+        notifyListeners("m32:fxRtnOn", data);
     }
 
     @Override

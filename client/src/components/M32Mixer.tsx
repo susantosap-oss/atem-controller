@@ -69,6 +69,8 @@ interface M32MixerProps {
   busVu:          Record<string, LevelData>;
   auxInNames:     Record<string, string>;
   fxRtnNames:     Record<string, string>;
+  auxInOn:        Record<string, boolean>;
+  fxRtnOn:        Record<string, boolean>;
   auxInSendLevels: Record<string, M32SendEntry>;
   fxRtnSendLevels: Record<string, M32SendEntry>;
   auxInVu:        Record<string, LevelData>;
@@ -77,7 +79,6 @@ interface M32MixerProps {
   onConnect:      (ip: string) => void;
   onDisconnect:   () => void;
   onChannelOn:         (ch: string, on: boolean) => void;
-  onDcaOn:             (dca: string, on: boolean) => void;
   onChannelSendLevel:  (ch: string, bus: string, level: number) => void;
   onChannelSendOn:     (ch: string, bus: string, on: boolean) => void;
   onBusLevel:     (bus: string, level: number) => void;
@@ -110,18 +111,28 @@ function SendFader({
   ch, bus, entry, disabled, isPre,
   onChange, onToggle,
 }: {
-  ch: string; bus: string;
+  ch: string; bus: string | [string, string];
   entry: M32SendEntry;
   disabled: boolean;
   isPre?: boolean;
   onChange: (ch: string, bus: string, v: number) => void;
   onToggle: (ch: string, bus: string, on: boolean) => void;
 }) {
-  const dragging  = useRef(false);
-  const startY    = useRef(0);
-  const startVal  = useRef(entry.level);
-  const thumbTop  = (1 - entry.level) * 100;
-  const db        = m32ToDb(entry.level);
+  const buses = useMemo(() => (Array.isArray(bus) ? bus : [bus]), [bus]);
+
+  const dragging   = useRef(false);
+  const startY     = useRef(0);
+  const startVal   = useRef(entry.level);
+  const lastSent   = useRef(0);   // throttle timestamp for outgoing onChange
+  // Local drag value — drives the visuals directly so the thumb tracks the
+  // pointer at full frame rate and isn't disturbed by laggy device-echo
+  // updates to `entry.level` arriving mid-drag (the cause of the "patah-patah"/
+  // not-smooth feel — the thumb would snap back to a stale echoed value).
+  const [dragLevel, setDragLevel] = useState<number | null>(null);
+
+  const level     = dragLevel ?? entry.level;
+  const thumbTop  = (1 - level) * 100;
+  const db        = m32ToDb(level);
 
   const onPtrDown = useCallback((e: React.PointerEvent) => {
     if (disabled) return;
@@ -129,25 +140,40 @@ function SendFader({
     dragging.current = true;
     startY.current   = e.clientY;
     startVal.current = entry.level;
+    lastSent.current = 0;
   }, [disabled, entry.level]);
 
   const onPtrMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
     const deltaY = startY.current - e.clientY;
     const next   = Math.min(1, Math.max(0, startVal.current + deltaY / FADER_H));
-    onChange(ch, bus, Math.round(next * 1000) / 1000);
-  }, [ch, bus, onChange]);
+    const v      = Math.round(next * 1000) / 1000;
+    setDragLevel(v);
+    // Throttle outgoing OSC commands (~30/s) — the visual already tracks the
+    // pointer via dragLevel, so we don't need to flood the device on every move.
+    const now = performance.now();
+    if (now - lastSent.current >= 33) {
+      lastSent.current = now;
+      buses.forEach(b => onChange(ch, b, v));
+    }
+  }, [ch, buses, onChange]);
 
-  const onPtrUp = useCallback(() => { dragging.current = false; }, []);
+  const onPtrUp = useCallback(() => {
+    dragging.current = false;
+    setDragLevel(curr => {
+      if (curr !== null) buses.forEach(b => onChange(ch, b, curr));
+      return null;
+    });
+  }, [ch, buses, onChange]);
 
   // Double-tap → unity (0.75)
   const lastTap = useRef(0);
   const onTap = useCallback(() => {
     if (disabled) return;
     const now = Date.now();
-    if (now - lastTap.current < 300) onChange(ch, bus, 0.75);
+    if (now - lastTap.current < 300) buses.forEach(b => onChange(ch, b, 0.75));
     lastTap.current = now;
-  }, [ch, bus, disabled, onChange]);
+  }, [ch, buses, disabled, onChange]);
 
   const isOn = entry.on;
 
@@ -177,7 +203,7 @@ function SendFader({
             width:  18,
             height: 8,
           }}
-          title={`${fmtDb(db)} dB — double-tap: unity`}
+          title={`${fmtDb(db)} dB${buses.length > 1 ? ` (bus ${buses.join('/')} linked)` : ''} — double-tap: unity`}
         >
           <div className="absolute inset-x-0.5 top-1/2 -translate-y-1/2 flex flex-col gap-px">
             {[0,1].map(i => <div key={i} className="h-px bg-white/25" />)}
@@ -195,7 +221,7 @@ function SendFader({
       {/* ON button */}
       <button
         disabled={disabled}
-        onClick={() => !disabled && onToggle(ch, bus, !isOn)}
+        onClick={() => !disabled && buses.forEach(b => onToggle(ch, b, !isOn))}
         className={`text-[8px] font-bold rounded py-0.5 w-full transition-colors
           ${isOn
             ? 'bg-green-600 text-white shadow-[0_0_4px_#16a34a]'
@@ -221,12 +247,13 @@ function SendFader({
 // ── Channel strip ─────────────────────────────────────────────
 
 function M32ChannelStrip({
-  chKey, name, selectedBuses, channelOn, sendLevels, sendPre, vu, disabled,
+  chKey, name, selectedBuses, linked, channelOn, sendLevels, sendPre, vu, disabled,
   onChannelOn, onSendLevel, onSendOn,
 }: {
   chKey:         string;
   name:          string;
   selectedBuses: number[];
+  linked?:       boolean; // true = the 2 selectedBuses form a linked stereo pair → render a single fader
   channelOn?:    boolean;
   sendLevels:    Record<string, M32SendEntry>;
   sendPre:       Record<string, boolean>;
@@ -236,9 +263,10 @@ function M32ChannelStrip({
   onSendLevel:   (ch: string, bus: string, v: number) => void;
   onSendOn:      (ch: string, bus: string, on: boolean) => void;
 }) {
-  const numBuses = selectedBuses.length;
-  const totalW   = 20 + numBuses * 36;   // VU(20) + per-bus(36)
-  const isMuted  = channelOn === false;  // undefined = belum diketahui dari device
+  const isLinkedPair = !!linked && selectedBuses.length === 2;
+  const numFaders = isLinkedPair ? 1 : selectedBuses.length;
+  const totalW    = 20 + numFaders * 36;   // VU(20) + per-fader(36)
+  const isMuted   = channelOn === false;  // undefined = belum diketahui dari device
 
   return (
     <div
@@ -256,21 +284,33 @@ function M32ChannelStrip({
         </span>
       </div>
 
-      {/* Channel master mute (mirrors physical ON button on M32 console) */}
-      {onChannelOn && (
-        <button
-          disabled={disabled}
-          onClick={() => !disabled && onChannelOn(chKey, isMuted)}
-          title="Channel master ON/MUTE (mirrors device console)"
-          className={`text-[8px] font-bold rounded py-0.5 w-full mb-1 transition-colors
-            ${disabled
-              ? 'bg-navy-800 text-navy-600'
-              : isMuted
+      {/* Channel master mute status (mirrors physical ON button on M32 console) */}
+      {channelOn !== undefined && (
+        onChannelOn ? (
+          <button
+            disabled={disabled}
+            onClick={() => !disabled && onChannelOn(chKey, isMuted)}
+            title="Channel master ON/MUTE (mirrors device console)"
+            className={`text-[8px] font-bold rounded py-0.5 w-full mb-1 transition-colors
+              ${disabled
+                ? 'bg-navy-800 text-navy-600'
+                : isMuted
+                  ? 'bg-red-600 text-white shadow-[0_0_4px_#dc2626]'
+                  : 'bg-navy-800 text-green-400 border border-green-700/40'}`}
+          >
+            {isMuted ? 'MUTED' : 'ON'}
+          </button>
+        ) : (
+          <div
+            title="Channel master status (mirror dari device, read-only)"
+            className={`text-[8px] font-bold rounded py-0.5 w-full mb-1 text-center
+              ${isMuted
                 ? 'bg-red-600 text-white shadow-[0_0_4px_#dc2626]'
                 : 'bg-navy-800 text-green-400 border border-green-700/40'}`}
-        >
-          {isMuted ? 'MUTED' : 'ON'}
-        </button>
+          >
+            {isMuted ? 'MUTED' : 'ON'}
+          </div>
+        )
       )}
 
       {/* VU + faders side-by-side */}
@@ -278,8 +318,24 @@ function M32ChannelStrip({
         {/* Compact VU meter */}
         <VUMeter levels={vu} height={FADER_H + 22} compact />
 
-        {/* Send faders (one per selected bus) */}
-        {selectedBuses.map((busNum) => {
+        {/* Send faders — one per selected bus, or a single combined fader for a linked stereo pair */}
+        {isLinkedPair ? (() => {
+          const busKeys = selectedBuses.map(n => String(n).padStart(2, '0')) as [string, string];
+          const entry   = sendLevels[`${chKey}:${busKeys[0]}`] ?? { level: 0.75, on: true };
+          const isPre   = sendPre[`${chKey}:${busKeys[0]}`];
+          return (
+            <SendFader
+              key={busKeys.join('-')}
+              ch={chKey}
+              bus={busKeys}
+              entry={entry}
+              disabled={disabled}
+              isPre={isPre}
+              onChange={onSendLevel}
+              onToggle={onSendOn}
+            />
+          );
+        })() : selectedBuses.map((busNum) => {
           const busKey = String(busNum).padStart(2, '0');
           const entry  = sendLevels[`${chKey}:${busKey}`] ?? { level: 0.75, on: true };
           const isPre  = sendPre[`${chKey}:${busKey}`];
@@ -318,12 +374,17 @@ function BusMasterStrip({
   const dragging  = useRef(false);
   const startY    = useRef(0);
   const startVal  = useRef(entry.level);
+  const lastSent  = useRef(0);
   const trackRef  = useRef<HTMLDivElement>(null);
   const trackH    = useRef(BUS_FADER_H);
   const [measuredH, setMeasuredH] = useState(BUS_FADER_H);
+  // See SendFader: local drag value keeps the thumb tracking the pointer
+  // smoothly and immune to laggy device-echo updates mid-drag.
+  const [dragLevel, setDragLevel] = useState<number | null>(null);
 
-  const thumbTop  = (1 - entry.level) * 100;
-  const db        = m32ToDb(entry.level);
+  const level     = dragLevel ?? entry.level;
+  const thumbTop  = (1 - level) * 100;
+  const db        = m32ToDb(level);
   const isOn      = entry.on;
 
   // Track fader height dynamically so drag sensitivity and VU always match available space
@@ -345,16 +406,29 @@ function BusMasterStrip({
     dragging.current = true;
     startY.current   = e.clientY;
     startVal.current = entry.level;
+    lastSent.current = 0;
   }, [disabled, entry.level]);
 
   const onPtrMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
     const deltaY = startY.current - e.clientY;
     const next   = Math.min(1, Math.max(0, startVal.current + deltaY / trackH.current));
-    onLevel(busKey, Math.round(next * 1000) / 1000);
+    const v      = Math.round(next * 1000) / 1000;
+    setDragLevel(v);
+    const now = performance.now();
+    if (now - lastSent.current >= 33) {
+      lastSent.current = now;
+      onLevel(busKey, v);
+    }
   }, [busKey, onLevel]);
 
-  const onPtrUp = useCallback(() => { dragging.current = false; }, []);
+  const onPtrUp = useCallback(() => {
+    dragging.current = false;
+    setDragLevel(curr => {
+      if (curr !== null) onLevel(busKey, curr);
+      return null;
+    });
+  }, [busKey, onLevel]);
 
   const lastTap = useRef(0);
   const onTap = useCallback(() => {
@@ -455,6 +529,8 @@ export default function M32Mixer({
   busVu,
   auxInNames,
   fxRtnNames,
+  auxInOn,
+  fxRtnOn,
   auxInSendLevels,
   fxRtnSendLevels,
   auxInVu,
@@ -463,7 +539,6 @@ export default function M32Mixer({
   onConnect,
   onDisconnect,
   onChannelOn,
-  onDcaOn,
   onChannelSendLevel,
   onChannelSendOn,
   onBusLevel,
@@ -523,6 +598,12 @@ export default function M32Mixer({
   const sortedBuses = useMemo(
     () => Array.from(selectedBuses).sort((a, b) => a - b),
     [selectedBuses]
+  );
+
+  // True when the 2 selected buses form a linked stereo pair → channel strips show one combined fader
+  const sendFaderLinked = useMemo(
+    () => sortedBuses.length === 2 && isLinkedPair(sortedBuses[0]),
+    [sortedBuses, isLinkedPair]
   );
 
   // Non-linked bus: exclusive single-select (replaces entire selection)
@@ -757,13 +838,11 @@ export default function M32Mixer({
           const muted  = on === false;
           const name   = dcaNames[dcaKey] || `DCA ${parseInt(dcaKey)}`;
           return (
-            <button
+            <div
               key={dcaKey}
-              disabled={disabled}
-              onClick={() => !disabled && onDcaOn(dcaKey, muted)}
-              title={`${name} — klik untuk ${muted ? 'aktifkan' : 'mute'} (mirrors device console)`}
-              className={`shrink-0 rounded text-[9px] font-bold px-1.5 h-6 border transition-colors
-                truncate max-w-[72px]
+              title={`${name} — status mirror dari device (read-only)`}
+              className={`shrink-0 rounded text-[9px] font-bold px-1.5 h-6 border
+                truncate max-w-[72px] flex items-center justify-center
                 ${disabled
                   ? 'bg-navy-800 text-navy-600 border-navy-700'
                   : muted
@@ -771,7 +850,7 @@ export default function M32Mixer({
                     : 'bg-navy-800 text-green-400 border-green-700/40'}`}
             >
               {name}
-            </button>
+            </div>
           );
         })}
       </div>
@@ -818,6 +897,7 @@ export default function M32Mixer({
                   chKey={chKey}
                   name={channelNames[chKey] || `CH ${parseInt(chKey)}`}
                   selectedBuses={sortedBuses}
+                  linked={sendFaderLinked}
                   channelOn={channelOn[chKey]}
                   sendLevels={sendLevels}
                   sendPre={sendPre}
@@ -847,6 +927,8 @@ export default function M32Mixer({
                   chKey={chKey}
                   name={auxInNames[chKey] || `AuxIn ${parseInt(chKey)}`}
                   selectedBuses={sortedBuses}
+                  linked={sendFaderLinked}
+                  channelOn={auxInOn[chKey]}
                   sendLevels={auxInSendLevels}
                   sendPre={{}}
                   vu={auxInVu[chKey]}
@@ -874,6 +956,8 @@ export default function M32Mixer({
                   chKey={chKey}
                   name={fxRtnNames[chKey] || `FxRtn ${parseInt(chKey)}`}
                   selectedBuses={sortedBuses}
+                  linked={sendFaderLinked}
+                  channelOn={fxRtnOn[chKey]}
                   sendLevels={fxRtnSendLevels}
                   sendPre={{}}
                   vu={fxRtnVu[chKey]}

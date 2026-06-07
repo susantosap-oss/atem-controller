@@ -39,9 +39,9 @@ export default function HomePage() {
   const {
     m32Status, channelNames, busNames, busConfig, channelOn, dcaNames, dcaOn,
     sendLevels, sendPre, busLevels, inputVu, busVu,
-    auxInNames, fxRtnNames, auxInSendLevels, fxRtnSendLevels, auxInVu, fxRtnVu,
+    auxInNames, fxRtnNames, auxInOn, fxRtnOn, auxInSendLevels, fxRtnSendLevels, auxInVu, fxRtnVu,
     connectM32, disconnectM32,
-    setChannelOn, setDcaOn, setChannelSendLevel, setChannelSendOn, setBusLevel, setBusOn, queryBus,
+    setChannelOn, setChannelSendLevel, setChannelSendOn, setBusLevel, setBusOn, queryBus,
     setAuxInSendLevel, setAuxInSendOn, setFxRtnSendLevel, setFxRtnSendOn,
   } = useM32(socket);
 
@@ -259,6 +259,8 @@ export default function HomePage() {
                   busVu={busVu}
                   auxInNames={auxInNames}
                   fxRtnNames={fxRtnNames}
+                  auxInOn={auxInOn}
+                  fxRtnOn={fxRtnOn}
                   auxInSendLevels={auxInSendLevels}
                   fxRtnSendLevels={fxRtnSendLevels}
                   auxInVu={auxInVu}
@@ -267,7 +269,6 @@ export default function HomePage() {
                   onConnect={connectM32}
                   onDisconnect={disconnectM32}
                   onChannelOn={setChannelOn}
-                  onDcaOn={setDcaOn}
                   onChannelSendLevel={setChannelSendLevel}
                   onChannelSendOn={setChannelSendOn}
                   onBusLevel={setBusLevel}

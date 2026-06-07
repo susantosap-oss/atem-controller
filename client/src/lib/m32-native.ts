@@ -9,7 +9,6 @@ export interface M32Plugin {
   connect(options: { ip: string }): Promise<void>;
   disconnect(): Promise<void>;
   setChannelOn(options: { ch: string; on: boolean }): Promise<void>;
-  setDcaOn(options: { dca: string; on: boolean }): Promise<void>;
   setChannelSendLevel(options: { ch: string; bus: string; level: number }): Promise<void>;
   setChannelSendOn(options: { ch: string; bus: string; on: boolean }): Promise<void>;
   setBusLevel(options: { bus: string; level: number }): Promise<void>;
