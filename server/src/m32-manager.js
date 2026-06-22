@@ -104,6 +104,18 @@ function oscDecode(buf) {
   } catch (_) { return null; }
 }
 
+// FxRtn fallback names when device returns empty
+const FXRTN_DEFAULT = ['FxRtn 1', 'FxRtn 2', 'FxRtn 3', 'FxRtn 4'];
+
+// M32 FxRtn: 8 OSC channels in 4 stereo pairs (01+02, 03+04, 05+06, 07+08).
+// App shows 4 logical channels (01-04), each mapping to one stereo pair leader.
+function fxLogicalToOsc(logCh) {
+  return String((parseInt(logCh) - 1) * 2 + 1).padStart(2, '0');
+}
+function fxOscToLogical(oscCh) {
+  return String(Math.ceil(parseInt(oscCh) / 2)).padStart(2, '0');
+}
+
 // ── M32 level/dB curve ────────────────────────────────────────
 // Breakpoints (raw 0-1 ↔ dBu): 0.0=-90, 0.25=-40, 0.5=-20, 0.75=0, 1.0=+10
 const CURVE = [[0.00,-90],[0.25,-40],[0.50,-20],[0.75,0],[1.00,10]];
@@ -255,12 +267,6 @@ class M32Manager extends EventEmitter {
       this._xTimer = setInterval(() => this._xremote(), XREMOTE_INTERVAL);
       this._queryNames();
       this._mTimer = setInterval(() => this._pollMeters(), METER_INTERVAL);
-      // Re-query bus config after 1.5s — M32 may not respond on first burst
-      setTimeout(() => {
-        for (let i = 1; i <= 16; i++) {
-          this._send(`/bus/${String(i).padStart(2,'0')}/config/ms`);
-        }
-      }, 1500);
     });
   }
 
@@ -273,6 +279,7 @@ class M32Manager extends EventEmitter {
   _cleanup() {
     if (this._xTimer) { clearInterval(this._xTimer);  this._xTimer = null; }
     if (this._mTimer) { clearInterval(this._mTimer);  this._mTimer = null; }
+    if (this._queryTimers) { this._queryTimers.forEach(t => clearTimeout(t)); this._queryTimers = null; }
     if (this._sock)   { try { this._sock.close(); } catch (_) {} this._sock = null; }
   }
 
@@ -295,32 +302,97 @@ class M32Manager extends EventEmitter {
   }
 
   _queryNames() {
+    // Stagger queries — M32 drops responses when flooded with 160+ packets at once.
+    // Delay 150ms after /xremote so M32 registers subscription first.
+    this._queryTimers = [];
+    const sched = (fn, ms) => this._queryTimers.push(setTimeout(fn, ms));
+
+    sched(() => {
+      for (let i = 1; i <= 8; i++) {
+        const ch = String(i).padStart(2, '0');
+        this._send(`/ch/${ch}/config/name`);
+        this._send(`/ch/${ch}/mix/on`);
+      }
+    }, 150);
+    sched(() => {
+      for (let i = 9; i <= 16; i++) {
+        const ch = String(i).padStart(2, '0');
+        this._send(`/ch/${ch}/config/name`);
+        this._send(`/ch/${ch}/mix/on`);
+      }
+    }, 300);
+    sched(() => {
+      for (let i = 17; i <= 24; i++) {
+        const ch = String(i).padStart(2, '0');
+        this._send(`/ch/${ch}/config/name`);
+        this._send(`/ch/${ch}/mix/on`);
+      }
+    }, 450);
+    sched(() => {
+      for (let i = 25; i <= 32; i++) {
+        const ch = String(i).padStart(2, '0');
+        this._send(`/ch/${ch}/config/name`);
+        this._send(`/ch/${ch}/mix/on`);
+      }
+    }, 600);
+    sched(() => {
+      for (let i = 1; i <= 8; i++) {
+        const ch = String(i).padStart(2, '0');
+        this._send(`/auxin/${ch}/config/name`);
+        this._send(`/auxin/${ch}/mix/on`);
+      }
+      for (let i = 1; i <= 4; i++) {
+        const osc = fxLogicalToOsc(i);
+        this._send(`/fxrtn/${osc}/config/name`);
+        this._send(`/fxrtn/${osc}/mix/on`);
+      }
+    }, 750);
+    sched(() => {
+      for (let i = 1; i <= 8; i++) {
+        this._send(`/dca/${i}/config/name`);
+        this._send(`/dca/${i}/on`);
+      }
+    }, 900);
+    sched(() => {
+      for (let i = 1; i <= 16; i++) {
+        const b = String(i).padStart(2, '0');
+        this._send(`/bus/${b}/config/name`);
+        this._send(`/bus/${b}/config/ms`);
+        this._send(`/bus/${b}/mix/level`);
+        this._send(`/bus/${b}/mix/on`);
+      }
+    }, 1100);
+    // Re-query all names after 3s — catches any responses M32 dropped in first pass
+    sched(() => this._retryQueryNames(), 3000);
+  }
+
+  _retryQueryNames() {
     for (let i = 1; i <= 32; i++) {
       const ch = String(i).padStart(2, '0');
       this._send(`/ch/${ch}/config/name`);
       this._send(`/ch/${ch}/mix/on`);
     }
-    for (let i = 1; i <= 8; i++) {
-      const ch = String(i).padStart(2, '0');
-      this._send(`/auxin/${ch}/config/name`);
-      this._send(`/auxin/${ch}/mix/on`);
-    }
-    for (let i = 1; i <= 4; i++) {
-      const ch = String(i).padStart(2, '0');
-      this._send(`/fxrtn/${ch}/config/name`);
-      this._send(`/fxrtn/${ch}/mix/on`);
-    }
-    for (let i = 1; i <= 8; i++) {
-      this._send(`/dca/${i}/config/name`);
-      this._send(`/dca/${i}/on`);
-    }
-    for (let i = 1; i <= 16; i++) {
-      const b = String(i).padStart(2, '0');
-      this._send(`/bus/${b}/config/name`);
-      this._send(`/bus/${b}/config/ms`);
-      this._send(`/bus/${b}/mix/level`);
-      this._send(`/bus/${b}/mix/on`);
-    }
+    setTimeout(() => {
+      for (let i = 1; i <= 8; i++) {
+        const ch = String(i).padStart(2, '0');
+        this._send(`/auxin/${ch}/config/name`);
+        this._send(`/auxin/${ch}/mix/on`);
+      }
+      for (let i = 1; i <= 4; i++) {
+        const osc = fxLogicalToOsc(i);
+        this._send(`/fxrtn/${osc}/config/name`);
+        this._send(`/fxrtn/${osc}/mix/on`);
+      }
+      for (let i = 1; i <= 8; i++) {
+        this._send(`/dca/${i}/config/name`);
+        this._send(`/dca/${i}/on`);
+      }
+      for (let i = 1; i <= 16; i++) {
+        const b = String(i).padStart(2, '0');
+        this._send(`/bus/${b}/config/name`);
+        this._send(`/bus/${b}/config/ms`);
+      }
+    }, 200);
   }
 
   queryBus(busNum) {
@@ -338,9 +410,9 @@ class M32Manager extends EventEmitter {
       this._send(`/auxin/${ch}/mix/${bus}/on`);
     }
     for (let i = 1; i <= 4; i++) {
-      const ch = String(i).padStart(2, '0');
-      this._send(`/fxrtn/${ch}/mix/${bus}/level`);
-      this._send(`/fxrtn/${ch}/mix/${bus}/on`);
+      const osc = fxLogicalToOsc(i);
+      this._send(`/fxrtn/${osc}/mix/${bus}/level`);
+      this._send(`/fxrtn/${osc}/mix/${bus}/on`);
     }
   }
 
@@ -420,14 +492,13 @@ class M32Manager extends EventEmitter {
       return;
     }
 
-    // FxRtn name  /fxrtn/NN/config/name
+    // FxRtn name  /fxrtn/NN/config/name — map OSC pair to logical ch 01-04
     const mFxName = address.match(/^\/fxrtn\/(\d+)\/config\/name$/);
     if (mFxName) {
-      const ch = mFxName[1];
-      this.fxRtnNames[ch] = (a0?.value || '').trim() || `FxRtn ${parseInt(ch)}`;
-      // Diagnostic: live test reported FxRtn name order doesn't match the device
-      // console (Plate/Hall/Delay/Muted) — log the raw OSC reply to compare.
-      console.log(`[M32][meter-debug] /fxrtn/${ch}/config/name → raw="${a0?.value}" (device console FX type assignment should be checked against this)`);
+      const logCh = fxOscToLogical(mFxName[1]);
+      const raw = (a0?.value || '').trim();
+      const def = FXRTN_DEFAULT[parseInt(logCh) - 1] ?? `FxRtn ${parseInt(logCh)}`;
+      this.fxRtnNames[logCh] = raw || def;
       this.emit('fxRtnNames', { ...this.fxRtnNames });
       return;
     }
@@ -441,10 +512,11 @@ class M32Manager extends EventEmitter {
       return;
     }
 
-    // FxRtn master mute  /fxrtn/NN/mix/on  (0=muted, 1=on) — distinct from /fxrtn/NN/mix/MM/on (per-bus send)
+    // FxRtn master mute  /fxrtn/NN/mix/on — pair leaders only (odd OSC ch)
     const mFxOn = address.match(/^\/fxrtn\/(\d+)\/mix\/on$/);
     if (mFxOn) {
-      const ch = mFxOn[1];
+      if (parseInt(mFxOn[1]) % 2 === 0) return;
+      const ch = fxOscToLogical(mFxOn[1]);
       this.fxRtnOn[ch] = a0?.value === 1;
       this.emit('fxRtnOn', { ch, on: this.fxRtnOn[ch] });
       return;
@@ -472,10 +544,11 @@ class M32Manager extends EventEmitter {
       return;
     }
 
-    // FxRtn send level  /fxrtn/NN/mix/MM/level
+    // FxRtn send level  /fxrtn/NN/mix/MM/level — map OSC pair to logical ch 01-04
     const mFxSendLvl = address.match(/^\/fxrtn\/(\d+)\/mix\/(\d+)\/level$/);
     if (mFxSendLvl) {
-      const [,ch,bus] = mFxSendLvl;
+      const ch = fxOscToLogical(mFxSendLvl[1]);
+      const bus = mFxSendLvl[2];
       const key = `${ch}:${bus}`;
       if (!this.fxRtnSendLevels[key]) this.fxRtnSendLevels[key] = { level: 0.75, on: true };
       this.fxRtnSendLevels[key].level = a0?.value ?? 0.75;
@@ -483,10 +556,11 @@ class M32Manager extends EventEmitter {
       return;
     }
 
-    // FxRtn send on  /fxrtn/NN/mix/MM/on
+    // FxRtn send on  /fxrtn/NN/mix/MM/on — map OSC pair to logical ch 01-04
     const mFxSendOn = address.match(/^\/fxrtn\/(\d+)\/mix\/(\d+)\/on$/);
     if (mFxSendOn) {
-      const [,ch,bus] = mFxSendOn;
+      const ch = fxOscToLogical(mFxSendOn[1]);
+      const bus = mFxSendOn[2];
       const key = `${ch}:${bus}`;
       if (!this.fxRtnSendLevels[key]) this.fxRtnSendLevels[key] = { level: 0.75, on: true };
       this.fxRtnSendLevels[key].on = a0?.value === 1;
@@ -547,29 +621,43 @@ class M32Manager extends EventEmitter {
       return;
     }
 
-    // AuxIn + FxRtn meters  /meters/2 (8 AuxIn + 4 FxRtn = 12 channels)
+    // /meters/2 structure (VERIFIED from capture with Plate+Hall active):
+    //   float[0-7]  = FX Send bus levels (signal going INTO each FX engine, 2 floats/FX stereo)
+    //                 — NOT AuxIn input meters (these go silent when FX is inactive)
+    //   float[8-15] = FxRtn 1-4 stereo L+R output (signal coming OUT of each FX engine)
+    //                   FX1L=[8], FX1R=[9], FX2L=[10], FX2R=[11],
+    //                   FX3L=[12], FX3R=[13], FX4L=[14], FX4R=[15]
+    //   float[16-23]= unknown stereo pairs (possibly bus/aux output levels)
+    //   float[24]   = separator (-64dB)
+    //   float[25-48]= bus fader positions (~0dB)
     if (address === '/meters/2' && a0?.type === 'blob') {
       if (!this._meterBlobLogged.has('/meters/2')) {
         this._meterBlobLogged.add('/meters/2');
-        logMeterBlobOnce('/meters/2 (ASSUMED: AuxIn1-8 then FxRtn1-4 — UNVERIFIED, compare against device console levels)', a0.value);
+        logMeterBlobOnce('/meters/2 (FxRtn1-4 mono at [8-11]; [0-7]=FX sends)', a0.value);
       }
-      const m = parseMeterBlob(a0.value, 12);
-      if (m) {
-        const auxIn = {}, fxRtn = {};
-        for (let i = 1; i <= 8; i++) {
-          const key = String(i).padStart(2, '0');
-          if (m[key]) auxIn[key] = m[key];
-        }
-        for (let i = 1; i <= 4; i++) {
-          const srcKey = String(i + 8).padStart(2, '0');
-          const dstKey = String(i).padStart(2, '0');
-          if (m[srcKey]) fxRtn[dstKey] = m[srcKey];
-        }
-        if (Object.keys(auxIn).length)  this.emit('auxInMeters',  auxIn);
-        if (Object.keys(fxRtn).length)  this.emit('fxRtnMeters',  fxRtn);
+      const blob = a0.value;
+      if (!blob || blob.length < 8) return;
+      const countLE = blob.readInt32LE(0);
+      const expected = countLE * 4;
+      const offset = (expected > 0 && expected <= blob.length - 4) ? 4 : 0;
+
+      // FxRtn 1-4: stereo L+R pairs starting at float[8]
+      // Layout: FX1L=[8],FX1R=[9], FX2L=[10],FX2R=[11], FX3L=[12],FX3R=[13], FX4L=[14],FX4R=[15]
+      const fxRtn = {};
+      for (let i = 0; i < 4; i++) {
+        const loL = offset + (8 + i * 2) * 4;
+        const loR = offset + (8 + i * 2 + 1) * 4;
+        if (loR + 4 > blob.length) break;
+        const db = linToDbFS(Math.max(blob.readFloatLE(loL), blob.readFloatLE(loR)));
+        fxRtn[String(i + 1).padStart(2, '0')] = { left: db, right: db };
       }
+
+      if (Object.keys(fxRtn).length) this.emit('fxRtnMeters', fxRtn);
       return;
     }
+
+    // /meters/3 is GEQ/dynamics data on M32R, NOT AuxIn — produces phantom signal.
+    // AuxIn input meters are not available from any M32 meter subscription.
 
     // Bus meters  /meters/5
     if (address === '/meters/5' && a0?.type === 'blob') {
@@ -631,7 +719,8 @@ class M32Manager extends EventEmitter {
 
   setFxRtnSendLevel(ch, bus, level) {
     const clamped = Math.min(1, Math.max(0, level));
-    this._send(`/fxrtn/${ch}/mix/${bus}/level`, [{ type: 'f', value: clamped }]);
+    const osc = fxLogicalToOsc(ch);
+    this._send(`/fxrtn/${osc}/mix/${bus}/level`, [{ type: 'f', value: clamped }]);
     const key = `${ch}:${bus}`;
     if (!this.fxRtnSendLevels[key]) this.fxRtnSendLevels[key] = { level: 0.75, on: true };
     this.fxRtnSendLevels[key].level = clamped;
@@ -639,7 +728,8 @@ class M32Manager extends EventEmitter {
   }
 
   setFxRtnSendOn(ch, bus, on) {
-    this._send(`/fxrtn/${ch}/mix/${bus}/on`, [{ type: 'i', value: on ? 1 : 0 }]);
+    const osc = fxLogicalToOsc(ch);
+    this._send(`/fxrtn/${osc}/mix/${bus}/on`, [{ type: 'i', value: on ? 1 : 0 }]);
     const key = `${ch}:${bus}`;
     if (!this.fxRtnSendLevels[key]) this.fxRtnSendLevels[key] = { level: 0.75, on: true };
     this.fxRtnSendLevels[key].on = !!on;

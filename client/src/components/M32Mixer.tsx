@@ -103,18 +103,23 @@ const CH_KEYS     = Array.from({ length: 32 }, (_, i) => String(i + 1).padStart(
 const AUXIN_KEYS  = Array.from({ length:  8 }, (_, i) => String(i + 1).padStart(2, '0'));
 const FXRTN_KEYS  = Array.from({ length:  4 }, (_, i) => String(i + 1).padStart(2, '0'));
 const DCA_KEYS    = Array.from({ length:  8 }, (_, i) => String(i + 1).padStart(2, '0'));
+
+const FXRTN_DEFAULT_NAMES: Record<string, string> = {
+  '01': 'FxRtn 1', '02': 'FxRtn 2', '03': 'FxRtn 3', '04': 'FxRtn 4',
+};
 const BUS_NUMS = Array.from({ length: 16 }, (_, i) => i + 1);
 
 // ── Send fader (compact vertical, one per bus) ────────────────
 
 function SendFader({
-  ch, bus, entry, disabled, isPre,
+  ch, bus, entry, disabled, isPre, dragSensitivity = 1,
   onChange, onToggle,
 }: {
   ch: string; bus: string | [string, string];
   entry: M32SendEntry;
   disabled: boolean;
   isPre?: boolean;
+  dragSensitivity?: number;
   onChange: (ch: string, bus: string, v: number) => void;
   onToggle: (ch: string, bus: string, on: boolean) => void;
 }) {
@@ -146,7 +151,7 @@ function SendFader({
   const onPtrMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
     const deltaY = startY.current - e.clientY;
-    const next   = Math.min(1, Math.max(0, startVal.current + deltaY / FADER_H));
+    const next   = Math.min(1, Math.max(0, startVal.current + deltaY * dragSensitivity / FADER_H));
     const v      = Math.round(next * 1000) / 1000;
     setDragLevel(v);
     // Throttle outgoing OSC commands (~30/s) — the visual already tracks the
@@ -248,6 +253,8 @@ function SendFader({
 
 function M32ChannelStrip({
   chKey, name, selectedBuses, linked, channelOn, sendLevels, sendPre, vu, disabled,
+  hideVu = false,
+  sendDragSensitivity = 1,
   onChannelOn, onSendLevel, onSendOn,
 }: {
   chKey:         string;
@@ -259,13 +266,15 @@ function M32ChannelStrip({
   sendPre:       Record<string, boolean>;
   vu?:           LevelData;
   disabled:      boolean;
+  hideVu?:       boolean;
+  sendDragSensitivity?: number;
   onChannelOn?:  (ch: string, on: boolean) => void;
   onSendLevel:   (ch: string, bus: string, v: number) => void;
   onSendOn:      (ch: string, bus: string, on: boolean) => void;
 }) {
   const isLinkedPair = !!linked && selectedBuses.length === 2;
   const numFaders = isLinkedPair ? 1 : selectedBuses.length;
-  const totalW    = 20 + numFaders * 36;   // VU(20) + per-fader(36)
+  const totalW    = (hideVu ? 0 : 20) + numFaders * 36;
   const isMuted   = channelOn === false;  // undefined = belum diketahui dari device
 
   return (
@@ -316,7 +325,7 @@ function M32ChannelStrip({
       {/* VU + faders side-by-side */}
       <div className="flex items-end gap-1">
         {/* Compact VU meter */}
-        <VUMeter levels={vu} height={FADER_H + 22} compact />
+        {!hideVu && <VUMeter levels={vu} height={FADER_H + 22} compact />}
 
         {/* Send faders — one per selected bus, or a single combined fader for a linked stereo pair */}
         {isLinkedPair ? (() => {
@@ -331,6 +340,7 @@ function M32ChannelStrip({
               entry={entry}
               disabled={disabled}
               isPre={isPre}
+              dragSensitivity={sendDragSensitivity}
               onChange={onSendLevel}
               onToggle={onSendOn}
             />
@@ -347,6 +357,7 @@ function M32ChannelStrip({
               entry={entry}
               disabled={disabled}
               isPre={isPre}
+              dragSensitivity={sendDragSensitivity}
               onChange={onSendLevel}
               onToggle={onSendOn}
             />
@@ -919,7 +930,7 @@ export default function M32Mixer({
               </span>
             </div>
 
-            {/* AuxIn strips (AuxIn 1-8) */}
+            {/* AuxIn strips (AuxIn 1-8) — no channelOn: Send on Fader mode, per-bus ON/OFF is the control */}
             <div className="flex h-full">
               {AUXIN_KEYS.map(chKey => (
                 <M32ChannelStrip
@@ -928,11 +939,11 @@ export default function M32Mixer({
                   name={auxInNames[chKey] || `AuxIn ${parseInt(chKey)}`}
                   selectedBuses={sortedBuses}
                   linked={sendFaderLinked}
-                  channelOn={auxInOn[chKey]}
                   sendLevels={auxInSendLevels}
                   sendPre={{}}
-                  vu={auxInVu[chKey]}
+                  hideVu
                   disabled={disabled}
+                  sendDragSensitivity={2}
                   onSendLevel={onAuxInSendLevel}
                   onSendOn={onAuxInSendOn}
                 />
@@ -954,7 +965,7 @@ export default function M32Mixer({
                 <M32ChannelStrip
                   key={`fxrtn-${chKey}`}
                   chKey={chKey}
-                  name={fxRtnNames[chKey] || `FxRtn ${parseInt(chKey)}`}
+                  name={fxRtnNames[chKey] || FXRTN_DEFAULT_NAMES[chKey] || ''}
                   selectedBuses={sortedBuses}
                   linked={sendFaderLinked}
                   channelOn={fxRtnOn[chKey]}

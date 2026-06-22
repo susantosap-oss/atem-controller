@@ -323,6 +323,18 @@ export function useM32(socket: Socket | null) {
       await addL('m32:sendPre', (d: { ch: string; bus: string; pre: boolean }) => {
         setSendPre(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: d.pre }));
       });
+      await addL('m32:auxInSendLevel', (d: { ch: string; bus: string; level: number; on: boolean }) => {
+        setAuxInSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+      });
+      await addL('m32:auxInSendOn', (d: { ch: string; bus: string; level: number; on: boolean }) => {
+        setAuxInSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+      });
+      await addL('m32:fxRtnSendLevel', (d: { ch: string; bus: string; level: number; on: boolean }) => {
+        setFxRtnSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+      });
+      await addL('m32:fxRtnSendOn', (d: { ch: string; bus: string; level: number; on: boolean }) => {
+        setFxRtnSendLevels(prev => ({ ...prev, [`${d.ch}:${d.bus}`]: { level: d.level, on: d.on } }));
+      });
       await addL('m32:busLevel', (d: { bus: string; level: number; on: boolean }) => {
         setBusLevels(prev => ({ ...prev, [d.bus]: { level: d.level, on: d.on } }));
       });
@@ -568,7 +580,11 @@ export function useM32(socket: Socket | null) {
   }, [socket]);
 
   const setAuxInSendLevel = useCallback((ch: string, bus: string, level: number) => {
-    socket?.emit('m32:setAuxInSendLevel', { ch, bus, level });
+    if (IS_NATIVE) {
+      M32Native.setAuxInSendLevel({ ch, bus, level });
+    } else {
+      socket?.emit('m32:setAuxInSendLevel', { ch, bus, level });
+    }
     setAuxInSendLevels(prev => ({
       ...prev,
       [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], level },
@@ -576,7 +592,11 @@ export function useM32(socket: Socket | null) {
   }, [socket]);
 
   const setAuxInSendOn = useCallback((ch: string, bus: string, on: boolean) => {
-    socket?.emit('m32:setAuxInSendOn', { ch, bus, on });
+    if (IS_NATIVE) {
+      M32Native.setAuxInSendOn({ ch, bus, on });
+    } else {
+      socket?.emit('m32:setAuxInSendOn', { ch, bus, on });
+    }
     setAuxInSendLevels(prev => ({
       ...prev,
       [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], on },
@@ -584,7 +604,11 @@ export function useM32(socket: Socket | null) {
   }, [socket]);
 
   const setFxRtnSendLevel = useCallback((ch: string, bus: string, level: number) => {
-    socket?.emit('m32:setFxRtnSendLevel', { ch, bus, level });
+    if (IS_NATIVE) {
+      M32Native.setFxRtnSendLevel({ ch, bus, level });
+    } else {
+      socket?.emit('m32:setFxRtnSendLevel', { ch, bus, level });
+    }
     setFxRtnSendLevels(prev => ({
       ...prev,
       [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], level },
@@ -592,7 +616,11 @@ export function useM32(socket: Socket | null) {
   }, [socket]);
 
   const setFxRtnSendOn = useCallback((ch: string, bus: string, on: boolean) => {
-    socket?.emit('m32:setFxRtnSendOn', { ch, bus, on });
+    if (IS_NATIVE) {
+      M32Native.setFxRtnSendOn({ ch, bus, on });
+    } else {
+      socket?.emit('m32:setFxRtnSendOn', { ch, bus, on });
+    }
     setFxRtnSendLevels(prev => ({
       ...prev,
       [`${ch}:${bus}`]: { ...prev[`${ch}:${bus}`], on },

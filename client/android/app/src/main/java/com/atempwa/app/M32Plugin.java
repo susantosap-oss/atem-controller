@@ -102,6 +102,46 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
         call.resolve();
     }
 
+    @PluginMethod
+    public void setAuxInSendLevel(PluginCall call) {
+        if (!checkConnected(call)) return;
+        String ch    = call.getString("ch",  "01");
+        String bus   = call.getString("bus", "01");
+        float  level = call.getFloat("level", 0.75f);
+        m32.setAuxInSendLevel(ch, bus, level);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setAuxInSendOn(PluginCall call) {
+        if (!checkConnected(call)) return;
+        String  ch  = call.getString("ch",  "01");
+        String  bus = call.getString("bus", "01");
+        boolean on  = Boolean.TRUE.equals(call.getBoolean("on", true));
+        m32.setAuxInSendOn(ch, bus, on);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setFxRtnSendLevel(PluginCall call) {
+        if (!checkConnected(call)) return;
+        String ch    = call.getString("ch",  "01");
+        String bus   = call.getString("bus", "01");
+        float  level = call.getFloat("level", 0.75f);
+        m32.setFxRtnSendLevel(ch, bus, level);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setFxRtnSendOn(PluginCall call) {
+        if (!checkConnected(call)) return;
+        String  ch  = call.getString("ch",  "01");
+        String  bus = call.getString("bus", "01");
+        boolean on  = Boolean.TRUE.equals(call.getBoolean("on", true));
+        m32.setFxRtnSendOn(ch, bus, on);
+        call.resolve();
+    }
+
     // ── M32Connection.Listener callbacks ─────────────────────
 
     @Override
@@ -202,6 +242,46 @@ public class M32Plugin extends Plugin implements M32Connection.Listener {
         data.put("bus", bus);
         data.put("pre", pre);
         notifyListeners("m32:sendPre", data);
+    }
+
+    @Override
+    public void onAuxInSendLevel(String ch, String bus, double level, boolean on) {
+        JSObject data = new JSObject();
+        data.put("ch",    ch);
+        data.put("bus",   bus);
+        data.put("level", level);
+        data.put("on",    on);
+        notifyListeners("m32:auxInSendLevel", data);
+    }
+
+    @Override
+    public void onAuxInSendOn(String ch, String bus, double level, boolean on) {
+        JSObject data = new JSObject();
+        data.put("ch",    ch);
+        data.put("bus",   bus);
+        data.put("level", level);
+        data.put("on",    on);
+        notifyListeners("m32:auxInSendOn", data);
+    }
+
+    @Override
+    public void onFxRtnSendLevel(String ch, String bus, double level, boolean on) {
+        JSObject data = new JSObject();
+        data.put("ch",    ch);
+        data.put("bus",   bus);
+        data.put("level", level);
+        data.put("on",    on);
+        notifyListeners("m32:fxRtnSendLevel", data);
+    }
+
+    @Override
+    public void onFxRtnSendOn(String ch, String bus, double level, boolean on) {
+        JSObject data = new JSObject();
+        data.put("ch",    ch);
+        data.put("bus",   bus);
+        data.put("level", level);
+        data.put("on",    on);
+        notifyListeners("m32:fxRtnSendOn", data);
     }
 
     @Override

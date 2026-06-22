@@ -11,7 +11,9 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -60,6 +62,10 @@ public class M32Connection {
         void onSendLevel(String ch, String bus, double level, boolean on);
         void onSendOn(String ch, String bus, double level, boolean on);
         void onSendPre(String ch, String bus, boolean pre);
+        void onAuxInSendLevel(String ch, String bus, double level, boolean on);
+        void onAuxInSendOn(String ch, String bus, double level, boolean on);
+        void onFxRtnSendLevel(String ch, String bus, double level, boolean on);
+        void onFxRtnSendOn(String ch, String bus, double level, boolean on);
         void onBusLevel(String bus, double level, boolean on);
         void onBusOn(String bus, double level, boolean on);
         void onInputMeters(JSObject meters);
@@ -78,6 +84,7 @@ public class M32Connection {
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?>       xremoteFuture;
     private ScheduledFuture<?>       meterFuture;
+    private final List<ScheduledFuture<?>> queryFutures = new ArrayList<>();
     private Thread                   recvThread;
 
     // Cached state
@@ -86,14 +93,18 @@ public class M32Connection {
     private final Map<String, Boolean>  busMono      = new HashMap<>();
     private final Map<String, String>   auxInNames   = new HashMap<>();
     private final Map<String, String>   fxRtnNames   = new HashMap<>();
-    private final Map<String, Boolean>  channelOn    = new HashMap<>(); // "ch" → master mute state (/ch/NN/mix/on)
-    private final Map<String, Boolean>  auxInOn      = new HashMap<>(); // "ch" → master mute state (/auxin/NN/mix/on)
-    private final Map<String, Boolean>  fxRtnOn      = new HashMap<>(); // "ch" → master mute state (/fxrtn/NN/mix/on)
-    private final Map<String, String>   dcaNames     = new HashMap<>(); // "01".."08" → name
-    private final Map<String, Boolean>  dcaOn        = new HashMap<>(); // "01".."08" → mute state (/dca/N/on)
+    private final Map<String, Boolean>  channelOn    = new HashMap<>(); // effective mute (own AND DCA)
+    private final Map<String, Boolean>  channelOwnOn = new HashMap<>(); // channel own mute only (/ch/NN/mix/on)
+    private final Map<String, Integer>  chDcaMask    = new HashMap<>(); // ch → DCA bitmask (/ch/NN/grp/dca)
+    private final Map<String, Boolean>  auxInOn          = new HashMap<>();
+    private final Map<String, Boolean>  fxRtnOn          = new HashMap<>();
+    private final Map<String, double[]> auxInSendLevels  = new HashMap<>(); // "ch:bus" → [level, on]
+    private final Map<String, double[]> fxRtnSendLevels  = new HashMap<>();
+    private final Map<String, String>   dcaNames     = new HashMap<>();
+    private final Map<String, Boolean>  dcaOn        = new HashMap<>(); // "01".."08" → true=active, false=muted
     private final Map<String, double[]> sendLevels   = new HashMap<>(); // "ch:bus" → [level, on]
-    private final Map<String, Boolean>  sendPre      = new HashMap<>(); // "ch:bus" → pre
-    private final Map<String, double[]> busLevels    = new HashMap<>(); // bus      → [level, on]
+    private final Map<String, Boolean>  sendPre      = new HashMap<>();
+    private final Map<String, double[]> busLevels    = new HashMap<>();
 
     public M32Connection(String ip, Listener listener) {
         this.ip       = ip;
@@ -152,6 +163,10 @@ public class M32Connection {
                 meterFuture = scheduler.scheduleAtFixedRate(
                     this::pollMeters, 500, METER_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
+                // Clear per-channel own-mute cache so stale state from prior session
+                // doesn't cause emitEffectiveChannelOn to emit wrong values before the
+                // new session's /ch/NN/mix/on responses arrive.
+                channelOwnOn.clear();
                 queryAllNames();
                 firstMessage = true;
 
@@ -198,6 +213,8 @@ public class M32Connection {
     private void cancelTimers() {
         if (xremoteFuture != null) { xremoteFuture.cancel(false); xremoteFuture = null; }
         if (meterFuture   != null) { meterFuture.cancel(false);   meterFuture   = null; }
+        for (ScheduledFuture<?> f : queryFutures) f.cancel(false);
+        queryFutures.clear();
     }
 
     // ── OSC Send helpers ──────────────────────────────────────
@@ -324,7 +341,7 @@ public class M32Connection {
                     end = off;
                     while (end < len && data[end] != 0) end++;
                     args[i] = new String(data, off, end - off);
-                    off += padLen(end - off + 1);
+                    off = padLen(end + 1);
                 } else if (t == 'b') {
                     int blen = ByteBuffer.wrap(data, off, 4).order(ByteOrder.BIG_ENDIAN).getInt();
                     off += 4;
@@ -332,7 +349,12 @@ public class M32Connection {
                     System.arraycopy(data, off, blob, 0, Math.min(blen, len - off));
                     args[i] = blob;
                     off += padLen(blen);
+                } else if (t == 'T') {
+                    args[i] = Integer.valueOf(1); // OSC True — no data bytes
+                } else if (t == 'F') {
+                    args[i] = Integer.valueOf(0); // OSC False — no data bytes
                 }
+                // 'N' (nil), 'I' (impulse) — no data bytes, leave args[i] = null
             }
             return new OscMessage(address, args);
         } catch (Exception e) {
@@ -344,6 +366,21 @@ public class M32Connection {
     // ── Incoming message handler ──────────────────────────────
 
     private void handlePacket(byte[] data, int len) {
+        // OSC bundle: "#bundle\0" + 8-byte timetag + length-prefixed messages
+        if (len >= 16 && data[0] == '#') {
+            int off = 16; // skip #bundle\0 (8 bytes) + timetag (8 bytes)
+            while (off + 4 <= len) {
+                int msgLen = ByteBuffer.wrap(data, off, 4).order(ByteOrder.BIG_ENDIAN).getInt();
+                off += 4;
+                if (msgLen <= 0 || off + msgLen > len) break;
+                byte[] sub = new byte[msgLen];
+                System.arraycopy(data, off, sub, 0, msgLen);
+                handlePacket(sub, msgLen); // recurse (handles nested bundles too)
+                off += msgLen;
+            }
+            return;
+        }
+
         OscMessage msg = oscDecode(data, len);
         if (msg == null) return;
 
@@ -358,7 +395,7 @@ public class M32Connection {
         // /ch/NN/config/name
         if (addr.matches("^/ch/\\d+/config/name$")) {
             String[] p    = addr.split("/");
-            String   ch   = p[2];
+            String   ch   = String.format("%02d", Integer.parseInt(p[2]));
             String   name = a0 instanceof String ? ((String) a0).trim() : "";
             if (name.isEmpty()) name = "CH " + Integer.parseInt(ch);
             channelNames.put(ch, name);
@@ -379,21 +416,38 @@ public class M32Connection {
 
         // /dca/N/on  — DCA group mute (1=active, 0=muted)
         if (addr.matches("^/dca/\\d+/on$")) {
-            String[] p   = addr.split("/");
-            String   dca = String.format("%02d", Integer.parseInt(p[2]));
-            boolean  on  = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            String[] p      = addr.split("/");
+            int      dcaIdx = Integer.parseInt(p[2]) - 1; // 0-based
+            String   dca    = String.format("%02d", dcaIdx + 1);
+            boolean  on     = oscBool(a0);
             dcaOn.put(dca, on);
             mainHandler.post(() -> listener.onDcaOn(dca, on));
+            // Recompute effective mute for all channels assigned to this DCA group
+            for (Map.Entry<String, Integer> e : chDcaMask.entrySet()) {
+                if ((e.getValue() & (1 << dcaIdx)) != 0) {
+                    emitEffectiveChannelOn(e.getKey());
+                }
+            }
             return;
         }
 
         // /ch/NN/mix/on  — channel master mute (distinct from /ch/NN/mix/MM/on per-bus send)
         if (addr.matches("^/ch/\\d+/mix/on$")) {
             String[] p  = addr.split("/");
-            String   ch = p[2];
-            boolean  on = (a0 instanceof Integer) && ((Integer) a0) == 1;
-            channelOn.put(ch, on);
-            mainHandler.post(() -> listener.onChannelOn(ch, on));
+            String   ch = String.format("%02d", Integer.parseInt(p[2]));
+            channelOwnOn.put(ch, oscBool(a0));
+            emitEffectiveChannelOn(ch);
+            return;
+        }
+
+        // /ch/NN/grp/dca  — DCA group assignment bitmask (bit0=DCA1 … bit7=DCA8)
+        if (addr.matches("^/ch/\\d+/grp/dca$")) {
+            String[] p  = addr.split("/");
+            String   ch = String.format("%02d", Integer.parseInt(p[2]));
+            int      mask = (a0 instanceof Integer) ? (Integer) a0
+                          : (a0 instanceof Float)   ? Math.round((Float) a0) : 0;
+            chDcaMask.put(ch, mask);
+            emitEffectiveChannelOn(ch); // re-check with new DCA assignment
             return;
         }
 
@@ -419,13 +473,15 @@ public class M32Connection {
             return;
         }
 
-        // /fxrtn/NN/config/name
+        // /fxrtn/NN/config/name — map OSC pair to logical ch 01-04
         if (addr.matches("^/fxrtn/\\d+/config/name$")) {
-            String[] p    = addr.split("/");
-            String   ch   = p[2];
-            String   name = a0 instanceof String ? ((String) a0).trim() : "";
-            if (name.isEmpty()) name = "FxRtn " + Integer.parseInt(ch);
-            fxRtnNames.put(ch, name);
+            String[] p      = addr.split("/");
+            String   logCh  = fxOscToLogical(Integer.parseInt(p[2]));
+            String   name   = a0 instanceof String ? ((String) a0).trim() : "";
+            if (name.isEmpty()) {
+                name = "FxRtn " + Integer.parseInt(logCh);
+            }
+            fxRtnNames.put(logCh, name);
             emitFxRtnNames();
             return;
         }
@@ -433,20 +489,74 @@ public class M32Connection {
         // /auxin/NN/mix/on — master mute (distinct from /auxin/NN/mix/MM/on per-bus send)
         if (addr.matches("^/auxin/\\d+/mix/on$")) {
             String[] p  = addr.split("/");
-            String   ch = p[2];
-            boolean  on = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            String   ch = String.format("%02d", Integer.parseInt(p[2]));
+            boolean  on = oscBool(a0);
             auxInOn.put(ch, on);
             mainHandler.post(() -> listener.onAuxInOn(ch, on));
             return;
         }
 
-        // /fxrtn/NN/mix/on — master mute (distinct from /fxrtn/NN/mix/MM/on per-bus send)
+        // /fxrtn/NN/mix/on — pair leaders only (odd OSC ch)
         if (addr.matches("^/fxrtn/\\d+/mix/on$")) {
             String[] p  = addr.split("/");
-            String   ch = p[2];
-            boolean  on = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            int oscNum  = Integer.parseInt(p[2]);
+            if (oscNum % 2 == 0) return;
+            String   ch = fxOscToLogical(oscNum);
+            boolean  on = oscBool(a0);
             fxRtnOn.put(ch, on);
             mainHandler.post(() -> listener.onFxRtnOn(ch, on));
+            return;
+        }
+
+        // /auxin/NN/mix/MM/level — AuxIn send level to bus MM
+        if (addr.matches("^/auxin/\\d+/mix/\\d+/level$")) {
+            String[] p     = addr.split("/");
+            String   ch    = String.format("%02d", Integer.parseInt(p[2]));
+            String   bus   = String.format("%02d", Integer.parseInt(p[4]));
+            float    level = a0 instanceof Float ? (Float) a0 : 0.75f;
+            String   key   = ch + ":" + bus;
+            if (!auxInSendLevels.containsKey(key)) auxInSendLevels.put(key, new double[]{0.75, 1});
+            auxInSendLevels.get(key)[0] = level;
+            mainHandler.post(() -> listener.onAuxInSendLevel(ch, bus, level, auxInSendLevels.get(key)[1] != 0));
+            return;
+        }
+
+        // /auxin/NN/mix/MM/on — AuxIn send on/off to bus MM
+        if (addr.matches("^/auxin/\\d+/mix/\\d+/on$")) {
+            String[] p   = addr.split("/");
+            String   ch  = String.format("%02d", Integer.parseInt(p[2]));
+            String   bus = String.format("%02d", Integer.parseInt(p[4]));
+            boolean  on  = oscBool(a0);
+            String   key = ch + ":" + bus;
+            if (!auxInSendLevels.containsKey(key)) auxInSendLevels.put(key, new double[]{0.75, 1});
+            auxInSendLevels.get(key)[1] = on ? 1 : 0;
+            mainHandler.post(() -> listener.onAuxInSendOn(ch, bus, auxInSendLevels.get(key)[0], on));
+            return;
+        }
+
+        // /fxrtn/NN/mix/MM/level — map OSC pair to logical ch 01-04
+        if (addr.matches("^/fxrtn/\\d+/mix/\\d+/level$")) {
+            String[] p     = addr.split("/");
+            String   ch    = fxOscToLogical(Integer.parseInt(p[2]));
+            String   bus   = String.format("%02d", Integer.parseInt(p[4]));
+            float    level = a0 instanceof Float ? (Float) a0 : 0.75f;
+            String   key   = ch + ":" + bus;
+            if (!fxRtnSendLevels.containsKey(key)) fxRtnSendLevels.put(key, new double[]{0.75, 1});
+            fxRtnSendLevels.get(key)[0] = level;
+            mainHandler.post(() -> listener.onFxRtnSendLevel(ch, bus, level, fxRtnSendLevels.get(key)[1] != 0));
+            return;
+        }
+
+        // /fxrtn/NN/mix/MM/on — map OSC pair to logical ch 01-04
+        if (addr.matches("^/fxrtn/\\d+/mix/\\d+/on$")) {
+            String[] p   = addr.split("/");
+            String   ch  = fxOscToLogical(Integer.parseInt(p[2]));
+            String   bus = String.format("%02d", Integer.parseInt(p[4]));
+            boolean  on  = oscBool(a0);
+            String   key = ch + ":" + bus;
+            if (!fxRtnSendLevels.containsKey(key)) fxRtnSendLevels.put(key, new double[]{0.75, 1});
+            fxRtnSendLevels.get(key)[1] = on ? 1 : 0;
+            mainHandler.post(() -> listener.onFxRtnSendOn(ch, bus, fxRtnSendLevels.get(key)[0], on));
             return;
         }
 
@@ -468,7 +578,8 @@ public class M32Connection {
         // /ch/NN/mix/MM/level
         if (addr.matches("^/ch/\\d+/mix/\\d+/level$")) {
             String[] p     = addr.split("/");
-            String   ch    = p[2], bus = p[4];
+            String   ch    = String.format("%02d", Integer.parseInt(p[2]));
+            String   bus   = String.format("%02d", Integer.parseInt(p[4]));
             float    level = a0 instanceof Float ? (Float) a0 : 0.75f;
             String   key   = ch + ":" + bus;
             if (!sendLevels.containsKey(key)) sendLevels.put(key, new double[]{0.75, 1});
@@ -480,8 +591,9 @@ public class M32Connection {
         // /ch/NN/mix/MM/on
         if (addr.matches("^/ch/\\d+/mix/\\d+/on$")) {
             String[] p   = addr.split("/");
-            String   ch  = p[2], bus = p[4];
-            boolean  on  = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            String   ch  = String.format("%02d", Integer.parseInt(p[2]));
+            String   bus = String.format("%02d", Integer.parseInt(p[4]));
+            boolean  on  = oscBool(a0);
             String   key = ch + ":" + bus;
             if (!sendLevels.containsKey(key)) sendLevels.put(key, new double[]{0.75, 1});
             sendLevels.get(key)[1] = on ? 1 : 0;
@@ -492,8 +604,9 @@ public class M32Connection {
         // /ch/NN/mix/MM/pre  — 0=post-fader, 1=pre-fader
         if (addr.matches("^/ch/\\d+/mix/\\d+/pre$")) {
             String[] p   = addr.split("/");
-            String   ch  = p[2], bus = p[4];
-            boolean  pre = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            String   ch  = String.format("%02d", Integer.parseInt(p[2]));
+            String   bus = String.format("%02d", Integer.parseInt(p[4]));
+            boolean  pre = oscBool(a0);
             sendPre.put(ch + ":" + bus, pre);
             mainHandler.post(() -> listener.onSendPre(ch, bus, pre));
             return;
@@ -513,43 +626,52 @@ public class M32Connection {
         // /bus/NN/mix/on
         if (addr.matches("^/bus/\\d+/mix/on$")) {
             String[] p   = addr.split("/");
-            String   bus = p[2];
-            boolean  on  = (a0 instanceof Integer) && ((Integer) a0) == 1;
+            String   bus = String.format("%02d", Integer.parseInt(p[2]));
+            boolean  on  = oscBool(a0);
             if (!busLevels.containsKey(bus)) busLevels.put(bus, new double[]{0.75, 1});
             busLevels.get(bus)[1] = on ? 1 : 0;
             mainHandler.post(() -> listener.onBusOn(bus, busLevels.get(bus)[0], on));
             return;
         }
 
-        // /meters/1  — 32 input channels
+        // /meters/1 — 32 input channels only; float[32+] are NOT AuxIn (produce phantom signal)
         if (addr.equals("/meters/1") && a0 instanceof byte[]) {
-            JSObject m = parseMeterBlob((byte[]) a0, 32);
+            byte[] blob1 = (byte[]) a0;
+            JSObject m = parseMeterBlob(blob1, 32);
             if (m != null) mainHandler.post(() -> listener.onInputMeters(m));
             return;
         }
 
-        // /meters/2  — 8 AuxIn + 4 FxRtn = 12 channels
+        // /meters/2: float[0-7]=FX Send levels; float[8-15]=FxRtn 1-4 stereo L+R output
+        // Layout: FX1L=[8],FX1R=[9], FX2L=[10],FX2R=[11], FX3L=[12],FX3R=[13], FX4L=[14],FX4R=[15]
         if (addr.equals("/meters/2") && a0 instanceof byte[]) {
-            JSObject m = parseMeterBlob((byte[]) a0, 12);
-            if (m != null) {
-                JSObject auxIn = new JSObject();
+            byte[] blob2 = (byte[]) a0;
+            if (blob2.length >= 8) {
+                int cnt2 = ByteBuffer.wrap(blob2, 0, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
+                int exp2 = cnt2 * 4;
+                int off2 = (exp2 > 0 && exp2 <= blob2.length - 4) ? 4 : 0;
+
+
                 JSObject fxRtn = new JSObject();
-                for (int i = 1; i <= 8; i++) {
-                    String key = String.format("%02d", i);
-                    Object ch = m.opt(key);
-                    if (ch instanceof JSObject) auxIn.put(key, (JSObject) ch);
+                for (int i = 0; i < 4; i++) {
+                    int loL = off2 + (8 + i * 2) * 4;
+                    int loR = off2 + (8 + i * 2 + 1) * 4;
+                    if (loR + 4 > blob2.length) break;
+                    float vL = ByteBuffer.wrap(blob2, loL, 4).order(ByteOrder.LITTLE_ENDIAN).getFloat();
+                    float vR = ByteBuffer.wrap(blob2, loR, 4).order(ByteOrder.LITTLE_ENDIAN).getFloat();
+                    double db = linToDbFS(Math.max(vL, vR));
+                    String key = String.format("%02d", i + 1);
+                    JSObject ch = new JSObject();
+                    ch.put("left", db); ch.put("right", db);
+                    fxRtn.put(key, ch);
                 }
-                for (int i = 1; i <= 4; i++) {
-                    String srcKey = String.format("%02d", i + 8);
-                    String dstKey = String.format("%02d", i);
-                    Object ch = m.opt(srcKey);
-                    if (ch instanceof JSObject) fxRtn.put(dstKey, (JSObject) ch);
-                }
-                if (auxIn.length() > 0) mainHandler.post(() -> listener.onAuxInMeters(auxIn));
+
                 if (fxRtn.length() > 0) mainHandler.post(() -> listener.onFxRtnMeters(fxRtn));
             }
             return;
         }
+
+        // /meters/3 is GEQ/dynamics data on M32R, NOT AuxIn — produces phantom signal.
 
         // /meters/5  — 16 bus channels
         if (addr.equals("/meters/5") && a0 instanceof byte[]) {
@@ -620,38 +742,100 @@ public class M32Connection {
     // ── Initial queries ───────────────────────────────────────
 
     private void queryAllNames() {
+        // Stagger queries in batches — M32R drops responses when flooded.
+        // Delay 150ms after /xremote so M32 registers subscription before queries.
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 1; i <= 8; i++) {
+                String ch = String.format("%02d", i);
+                sendNoArgs("/ch/" + ch + "/config/name");
+                sendNoArgs("/ch/" + ch + "/mix/on");
+                sendNoArgs("/ch/" + ch + "/grp/dca");
+            }
+        }, 150, TimeUnit.MILLISECONDS));
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 9; i <= 16; i++) {
+                String ch = String.format("%02d", i);
+                sendNoArgs("/ch/" + ch + "/config/name");
+                sendNoArgs("/ch/" + ch + "/mix/on");
+                sendNoArgs("/ch/" + ch + "/grp/dca");
+            }
+        }, 300, TimeUnit.MILLISECONDS));
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 17; i <= 24; i++) {
+                String ch = String.format("%02d", i);
+                sendNoArgs("/ch/" + ch + "/config/name");
+                sendNoArgs("/ch/" + ch + "/mix/on");
+                sendNoArgs("/ch/" + ch + "/grp/dca");
+            }
+        }, 450, TimeUnit.MILLISECONDS));
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 25; i <= 32; i++) {
+                String ch = String.format("%02d", i);
+                sendNoArgs("/ch/" + ch + "/config/name");
+                sendNoArgs("/ch/" + ch + "/mix/on");
+                sendNoArgs("/ch/" + ch + "/grp/dca");
+            }
+        }, 600, TimeUnit.MILLISECONDS));
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 1; i <= 8; i++) {
+                String ch = String.format("%02d", i);
+                sendNoArgs("/auxin/" + ch + "/config/name");
+                sendNoArgs("/auxin/" + ch + "/mix/on");
+            }
+            for (int i = 1; i <= 4; i++) {
+                String osc = fxLogicalToOsc(String.format("%02d", i));
+                sendNoArgs("/fxrtn/" + osc + "/config/name");
+                sendNoArgs("/fxrtn/" + osc + "/mix/on");
+            }
+        }, 750, TimeUnit.MILLISECONDS));
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 1; i <= 8; i++) {
+                sendNoArgs("/dca/" + i + "/config/name");
+                sendNoArgs("/dca/" + i + "/on");
+            }
+        }, 900, TimeUnit.MILLISECONDS));
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 1; i <= 16; i++) {
+                String b = String.format("%02d", i);
+                sendNoArgs("/bus/" + b + "/config/name");
+                sendNoArgs("/bus/" + b + "/config/ms");
+                sendNoArgs("/bus/" + b + "/mix/level");
+                sendNoArgs("/bus/" + b + "/mix/on");
+            }
+        }, 1100, TimeUnit.MILLISECONDS));
+        // Re-query bus stereo config
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 1; i <= 16; i++) {
+                sendNoArgs("/bus/" + String.format("%02d", i) + "/config/ms");
+            }
+        }, 2000, TimeUnit.MILLISECONDS));
+        // Full re-query of all names — catches any responses M32 dropped in the first pass
+        queryFutures.add(scheduler.schedule(this::retryQueryNames, 3000, TimeUnit.MILLISECONDS));
+    }
+
+    private void retryQueryNames() {
         for (int i = 1; i <= 32; i++) {
             String ch = String.format("%02d", i);
             sendNoArgs("/ch/" + ch + "/config/name");
             sendNoArgs("/ch/" + ch + "/mix/on");
+            sendNoArgs("/ch/" + ch + "/grp/dca");
         }
-        for (int i = 1; i <= 8; i++) {
-            String ch = String.format("%02d", i);
-            sendNoArgs("/auxin/" + ch + "/config/name");
-            sendNoArgs("/auxin/" + ch + "/mix/on");
-        }
-        for (int i = 1; i <= 4; i++) {
-            String ch = String.format("%02d", i);
-            sendNoArgs("/fxrtn/" + ch + "/config/name");
-            sendNoArgs("/fxrtn/" + ch + "/mix/on");
-        }
-        for (int i = 1; i <= 8; i++) {
-            sendNoArgs("/dca/" + i + "/config/name");
-            sendNoArgs("/dca/" + i + "/on");
-        }
-        for (int i = 1; i <= 16; i++) {
-            String b = String.format("%02d", i);
-            sendNoArgs("/bus/" + b + "/config/name");
-            sendNoArgs("/bus/" + b + "/config/ms");
-            sendNoArgs("/bus/" + b + "/mix/level");
-            sendNoArgs("/bus/" + b + "/mix/on");
-        }
-        // Re-query bus stereo config after 1.5s — M32 may not respond on initial burst
-        scheduler.schedule(() -> {
-            for (int i = 1; i <= 16; i++) {
-                sendNoArgs("/bus/" + String.format("%02d", i) + "/config/ms");
+        queryFutures.add(scheduler.schedule(() -> {
+            for (int i = 1; i <= 8; i++) {
+                String ch = String.format("%02d", i);
+                sendNoArgs("/auxin/" + ch + "/config/name");
+                sendNoArgs("/auxin/" + ch + "/mix/on");
             }
-        }, 1500, TimeUnit.MILLISECONDS);
+            for (int i = 1; i <= 4; i++) {
+                String osc = fxLogicalToOsc(String.format("%02d", i));
+                sendNoArgs("/fxrtn/" + osc + "/config/name");
+                sendNoArgs("/fxrtn/" + osc + "/mix/on");
+            }
+            for (int i = 1; i <= 8; i++) {
+                sendNoArgs("/dca/" + i + "/config/name");
+                sendNoArgs("/dca/" + i + "/on");
+            }
+        }, 200, TimeUnit.MILLISECONDS));
     }
 
     public void queryBus(int busNum) {
@@ -664,14 +848,24 @@ public class M32Connection {
             sendNoArgs("/ch/" + ch + "/mix/" + bus + "/on");
             sendNoArgs("/ch/" + ch + "/mix/" + bus + "/pre");
         }
+        for (int i = 1; i <= 8; i++) {
+            String ch = String.format("%02d", i);
+            sendNoArgs("/auxin/" + ch + "/mix/" + bus + "/level");
+            sendNoArgs("/auxin/" + ch + "/mix/" + bus + "/on");
+        }
+        for (int i = 1; i <= 4; i++) {
+            String osc = fxLogicalToOsc(String.format("%02d", i));
+            sendNoArgs("/fxrtn/" + osc + "/mix/" + bus + "/level");
+            sendNoArgs("/fxrtn/" + osc + "/mix/" + bus + "/on");
+        }
     }
 
     // ── Control API ───────────────────────────────────────────
 
     public void setChannelOn(String ch, boolean on) {
         sendInt("/ch/" + ch + "/mix/on", on ? 1 : 0);
-        channelOn.put(ch, on);
-        mainHandler.post(() -> listener.onChannelOn(ch, on));
+        channelOwnOn.put(ch, on);
+        emitEffectiveChannelOn(ch);
     }
 
     public void setChannelSendLevel(String ch, String bus, float level) {
@@ -704,6 +898,83 @@ public class M32Connection {
         if (!busLevels.containsKey(bus)) busLevels.put(bus, new double[]{0.75, 1});
         busLevels.get(bus)[1] = on ? 1 : 0;
         mainHandler.post(() -> listener.onBusOn(bus, busLevels.get(bus)[0], on));
+    }
+
+    public void setAuxInSendLevel(String ch, String bus, float level) {
+        float clamped = Math.min(1f, Math.max(0f, level));
+        sendFloat("/auxin/" + ch + "/mix/" + bus + "/level", clamped);
+        String key = ch + ":" + bus;
+        if (!auxInSendLevels.containsKey(key)) auxInSendLevels.put(key, new double[]{0.75, 1});
+        auxInSendLevels.get(key)[0] = clamped;
+        mainHandler.post(() -> listener.onAuxInSendLevel(ch, bus, clamped, auxInSendLevels.get(key)[1] != 0));
+    }
+
+    public void setAuxInSendOn(String ch, String bus, boolean on) {
+        sendInt("/auxin/" + ch + "/mix/" + bus + "/on", on ? 1 : 0);
+        String key = ch + ":" + bus;
+        if (!auxInSendLevels.containsKey(key)) auxInSendLevels.put(key, new double[]{0.75, 1});
+        auxInSendLevels.get(key)[1] = on ? 1 : 0;
+        mainHandler.post(() -> listener.onAuxInSendOn(ch, bus, auxInSendLevels.get(key)[0], on));
+    }
+
+    public void setFxRtnSendLevel(String ch, String bus, float level) {
+        float clamped = Math.min(1f, Math.max(0f, level));
+        String osc = fxLogicalToOsc(ch);
+        sendFloat("/fxrtn/" + osc + "/mix/" + bus + "/level", clamped);
+        String key = ch + ":" + bus;
+        if (!fxRtnSendLevels.containsKey(key)) fxRtnSendLevels.put(key, new double[]{0.75, 1});
+        fxRtnSendLevels.get(key)[0] = clamped;
+        mainHandler.post(() -> listener.onFxRtnSendLevel(ch, bus, clamped, fxRtnSendLevels.get(key)[1] != 0));
+    }
+
+    public void setFxRtnSendOn(String ch, String bus, boolean on) {
+        String osc = fxLogicalToOsc(ch);
+        sendInt("/fxrtn/" + osc + "/mix/" + bus + "/on", on ? 1 : 0);
+        String key = ch + ":" + bus;
+        if (!fxRtnSendLevels.containsKey(key)) fxRtnSendLevels.put(key, new double[]{0.75, 1});
+        fxRtnSendLevels.get(key)[1] = on ? 1 : 0;
+        mainHandler.post(() -> listener.onFxRtnSendOn(ch, bus, fxRtnSendLevels.get(key)[0], on));
+    }
+
+    // ── FxRtn stereo pair mapping ────────────────────────────
+    // M32 has 8 FxRtn OSC channels in 4 stereo pairs (01+02, 03+04, 05+06, 07+08).
+    // App shows 4 logical channels (01-04), each mapping to one pair leader.
+    private static String fxLogicalToOsc(String logCh) {
+        return String.format("%02d", (Integer.parseInt(logCh) - 1) * 2 + 1);
+    }
+    private static String fxOscToLogical(int oscCh) {
+        return String.format("%02d", (int) Math.ceil(oscCh / 2.0));
+    }
+
+    // ── OSC boolean helper ────────────────────────────────────
+    // M32R sometimes sends bool params as 'i' (Integer) and sometimes as 'f' (Float).
+    private static boolean oscBool(Object v) {
+        if (v instanceof Integer) return ((Integer) v) == 1;
+        if (v instanceof Float)   return Math.round((Float) v) == 1;
+        return false;
+    }
+
+    // ── DCA-aware effective mute ──────────────────────────────
+    private boolean isChannelDcaMuted(String ch) {
+        int mask = chDcaMask.getOrDefault(ch, 0);
+        if (mask == 0) return false;
+        for (int i = 0; i < 8; i++) {
+            if ((mask & (1 << i)) != 0) {
+                Boolean active = dcaOn.get(String.format("%02d", i + 1));
+                if (active != null && !active) return true; // DCA is muted
+            }
+        }
+        return false;
+    }
+
+    private void emitEffectiveChannelOn(String ch) {
+        Boolean ownOnVal = channelOwnOn.get(ch);
+        if (ownOnVal == null) return; // own mute not yet known — wait for /ch/NN/mix/on response
+        boolean ownOn     = ownOnVal;
+        boolean dcaMuted  = isChannelDcaMuted(ch);
+        boolean effective = ownOn && !dcaMuted;
+        channelOn.put(ch, effective);
+        mainHandler.post(() -> listener.onChannelOn(ch, effective));
     }
 
     // ── State emitters ────────────────────────────────────────

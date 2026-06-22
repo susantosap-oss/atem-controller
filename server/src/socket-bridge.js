@@ -375,10 +375,16 @@ if (require.main === module) {
       console.log('[ATEM] No atemIP in config — connect via socket event atem:connect');
     }
 
+    if (cfg.m32IP) {
+      console.log(`[M32] Auto-connecting to ${cfg.m32IP}...`);
+      m32Manager.connect(cfg.m32IP);
+    }
+
     process.on('SIGINT', () => {
       console.log('\n[WS] Shutting down...');
       stop();
       atemManager.disconnect();
+      m32Manager.disconnect();
       process.exit(0);
     });
   })();

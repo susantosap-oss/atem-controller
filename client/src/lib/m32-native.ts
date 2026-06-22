@@ -14,6 +14,10 @@ export interface M32Plugin {
   setBusLevel(options: { bus: string; level: number }): Promise<void>;
   setBusOn(options: { bus: string; on: boolean }): Promise<void>;
   queryBus(options: { bus: number }): Promise<void>;
+  setAuxInSendLevel(options: { ch: string; bus: string; level: number }): Promise<void>;
+  setAuxInSendOn(options: { ch: string; bus: string; on: boolean }): Promise<void>;
+  setFxRtnSendLevel(options: { ch: string; bus: string; level: number }): Promise<void>;
+  setFxRtnSendOn(options: { ch: string; bus: string; on: boolean }): Promise<void>;
   addListener(event: string, cb: (data: any) => void): Promise<{ remove: () => void }>;
 }
 
